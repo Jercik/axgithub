@@ -1,0 +1,79 @@
+name: PR Review
+
+on:
+  workflow_call:
+    inputs:
+      label:
+        description: "Display label for the review (e.g., 'approach', 'code')"
+        type: string
+        required: true
+      recipes:
+        description: "JSON-encoded array of axrecipe recipe names to run as a matrix"
+        type: string
+        required: true
+      pr_number:
+        description: "PR number to review"
+        # String (not number): when the caller passes ${{ inputs.pr_number }}
+        # or similar, expression interpolation yields a string, which a
+        # type: number input rejects — the call fails with zero jobs.
+        type: string
+        required: true
+    secrets:
+      NPM_TOKEN:
+        required: true
+      AXRECIPE_API_KEY:
+        required: true
+
+jobs:
+  review:
+    # Skip fork PRs: pull_request_target runs with secrets, so untrusted code
+    # from forks must never execute. workflow_dispatch requires repo write access,
+    # so it is safe to allow.
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    # Callers must grant at least these permissions on their uses: job.
+    # If the caller grants less, GitHub rejects the run at startup with
+    # an explicit "requesting X, allowed Y" message — much clearer than
+    # a 403 at runtime when posting the review.
+    permissions:
+      contents: read          # actions/checkout + gh pr view
+      pull-requests: write    # recipe posts reviews via GitHub Reviews API
+      actions: read           # consistency with caller; harmless if unused
+    strategy:
+      fail-fast: false
+      matrix:
+        recipe: ${{ fromJson(inputs.recipes) }}
+    name: ${{ inputs.label }} (${{ matrix.recipe }})
+    timeout-minutes: 12
+    steps:
+      - name: Resolve PR head SHA
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          HEAD_SHA=$(gh pr view "${{ inputs.pr_number }}" --repo "${{ github.repository }}" --json headRefOid --jq '.headRefOid')
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout PR head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.pr.outputs.head_sha }}
+          fetch-depth: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          registry-url: https://npm.j4k.dev/
+
+      - name: Run ${{ inputs.label }} review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          AXRECIPE_URL: https://recipe.axkit.dev
+          AXRECIPE_API_KEY: ${{ secrets.AXRECIPE_API_KEY }}
+          REVIEW_REPOSITORY: ${{ github.repository }}
+          REVIEW_PR_NUMBER: ${{ inputs.pr_number }}
+        run: >-
+          npm exec --yes --package=axrecipe@latest --
+          axrecipe run ${{ matrix.recipe }}
