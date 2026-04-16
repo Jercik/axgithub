@@ -46,6 +46,25 @@ jobs:
     name: ${{ inputs.label }} (${{ matrix.recipe }})
     timeout-minutes: 12
     steps:
+      # GitHub's `required: true` on reusable-workflow secrets only validates
+      # that the caller maps them — not that the underlying repo secret is
+      # defined. A missing `AXRECIPE_API_KEY` at the caller expands to an empty
+      # string here and the run fails 30s later inside `axrecipe` with a
+      # generic "API key required" message. Fail early with a pointer to the
+      # caller's repo secrets page instead.
+      - name: Verify required secrets
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          AXRECIPE_API_KEY: ${{ secrets.AXRECIPE_API_KEY }}
+        run: |
+          missing=()
+          [ -n "$NPM_TOKEN" ] || missing+=("NPM_TOKEN")
+          [ -n "$AXRECIPE_API_KEY" ] || missing+=("AXRECIPE_API_KEY")
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::Missing required repo secret(s): ${missing[*]}. Set them at https://github.com/${{ github.repository }}/settings/secrets/actions and re-run."
+            exit 1
+          fi
+
       - name: Resolve PR head SHA
         id: pr
         env:

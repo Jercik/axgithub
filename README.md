@@ -13,6 +13,9 @@ own `ax*` repos.
 Runs [axrecipe](https://recipe.axkit.dev) recipes as a parallel matrix to review
 a pull request. Each recipe posts its own review via the GitHub Reviews API.
 
+Recipe definitions, recipe names, and how to mint an `AXRECIPE_API_KEY` are
+documented in the [axrecipe README](https://github.com/Jercik/axrecipe#readme).
+
 **Inputs**
 
 | Input       | Type   | Description                                                         |
