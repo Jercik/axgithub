@@ -94,5 +94,5 @@ jobs:
           REVIEW_REPOSITORY: ${{ github.repository }}
           REVIEW_PR_NUMBER: ${{ inputs.pr_number }}
         run: >-
-          npm exec --yes --package=axrecipe@latest --
+          npm exec --yes --package=axrecipe@3.0.4 --
           axrecipe run ${{ matrix.recipe }}
