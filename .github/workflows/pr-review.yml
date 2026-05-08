@@ -44,7 +44,7 @@ jobs:
       matrix:
         recipe: ${{ fromJson(inputs.recipes) }}
     name: ${{ inputs.label }} (${{ matrix.recipe }})
-    timeout-minutes: 12
+    timeout-minutes: 20
     steps:
       # GitHub's `required: true` on reusable-workflow secrets only validates
       # that the caller maps them — not that the underlying repo secret is
