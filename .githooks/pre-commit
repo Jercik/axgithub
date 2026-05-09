@@ -2,4 +2,9 @@
 # Native Git hook - enable with: git config core.hooksPath .githooks
 set -euo pipefail
 
-git diff --cached --check
+ignored_staged_paths=(
+  ":(exclude).agents/**"
+  ":(exclude).claude/**"
+)
+
+git diff --cached --check -- . "${ignored_staged_paths[@]}"
