@@ -128,7 +128,7 @@ const approachRecipes: Recipe[] = [
     name: "PR approach review 3 (Forgejo)",
     env: {
       REVIEW_AGENT: "opencode",
-      REVIEW_MODEL: "GLM-5.1",
+      REVIEW_MODEL: "GLM-5.2",
       REVIEW_DISPLAY_NAME: "Approach Review 3 (OpenCode Wafer)",
       REVIEW_VAULT_CREDENTIAL: "ci-opencode-wafer-credentials",
       REVIEW_PROVIDER: "wafer.ai",
