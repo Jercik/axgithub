@@ -8,7 +8,11 @@ on:
         type: string
         required: true
       recipes:
-        description: "JSON-encoded array of axrecipe recipe names to run as a matrix"
+        description: >-
+          JSON-encoded array of matrix entries. Each entry is either an
+          axrecipe recipe name string, or an object {recipe, name} — use
+          objects to run the same recipe more than once under distinct job
+          names (bare duplicate matrix values are deduplicated).
         type: string
         required: true
       pr_number:
@@ -42,8 +46,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        recipe: ${{ fromJson(inputs.recipes) }}
-    name: ${{ inputs.label }} (${{ matrix.recipe }})
+        entry: ${{ fromJson(inputs.recipes) }}
+    # Property access on a string entry evaluates empty, so the || chain
+    # falls through to the bare string for back-compat entries.
+    name: ${{ inputs.label }} (${{ matrix.entry.name || matrix.entry.recipe || matrix.entry }})
     timeout-minutes: 20
     steps:
       # GitHub's `required: true` on reusable-workflow secrets only validates
@@ -95,4 +101,4 @@ jobs:
           REVIEW_PR_NUMBER: ${{ inputs.pr_number }}
         run: >-
           npm exec --yes --package=axrecipe@latest --
-          axrecipe run ${{ matrix.recipe }}
+          axrecipe run ${{ matrix.entry.recipe || matrix.entry }}

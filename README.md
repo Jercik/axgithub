@@ -18,18 +18,23 @@ documented in the [axrecipe README](https://github.com/Jercik/axrecipe#readme).
 
 **Inputs**
 
-| Input       | Type   | Description                                                         |
-| ----------- | ------ | ------------------------------------------------------------------- |
-| `label`     | string | Job display label, e.g. `approach`, `code`.                         |
-| `recipes`   | string | JSON-encoded array of recipe names, e.g. `'["code-1","code-2"]'`.   |
-| `pr_number` | string | PR number to review. Pass as string — see [Gotchas](#gotchas).      |
+| Input       | Type   | Description                                                    |
+| ----------- | ------ | -------------------------------------------------------------- |
+| `label`     | string | Job display label, e.g. `approach`, `code`.                    |
+| `recipes`   | string | JSON-encoded array of matrix entries — see below.              |
+| `pr_number` | string | PR number to review. Pass as string — see [Gotchas](#gotchas). |
+
+Each `recipes` entry is either an axrecipe recipe name string (e.g.
+`"pr-review-approach-2"`) or a `{recipe, name}` object. Use objects to run the
+same recipe more than once under distinct job names — bare duplicate matrix
+values are deduplicated by GitHub.
 
 **Secrets**
 
-| Secret             | Purpose                             |
-| ------------------ | ----------------------------------- |
-| `NPM_TOKEN`        | Auth for the private npm registry.  |
-| `AXRECIPE_API_KEY` | Auth for the axrecipe server.       |
+| Secret             | Purpose                            |
+| ------------------ | ---------------------------------- |
+| `NPM_TOKEN`        | Auth for the private npm registry. |
+| `AXRECIPE_API_KEY` | Auth for the axrecipe server.      |
 
 **Caller example**
 
@@ -55,12 +60,46 @@ jobs:
     uses: Jercik/axgithub/.github/workflows/pr-review.yml@v1
     with:
       label: code
-      recipes: '["pr-review-code-1","pr-review-code-2"]'
+      recipes: >-
+        [{"recipe":"pr-review-code-smart","name":"code smart 1"},
+         {"recipe":"pr-review-code-smart","name":"code smart 2"}]
       pr_number: ${{ github.event.pull_request.number || inputs.pr_number }}
     secrets:
       NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
       AXRECIPE_API_KEY: ${{ secrets.AXRECIPE_API_KEY }}
 ```
+
+## Review runner
+
+[`review-recipes/review-runner.sh`](review-recipes/review-runner.sh) is the
+shell script each review recipe executes on the runner. It has two modes,
+selected by whether `REVIEW_PROFILE` is set in the recipe env.
+
+**Profile mode (resolve → install → run).** When `REVIEW_PROFILE` names an
+[axcredrouter](https://credrouter.axkit.dev) profile (e.g. `smart-pr-review`),
+the runner first calls `axrun resolve --profile "$REVIEW_PROFILE" --json`
+(configured via the `AXCREDROUTER` env JSON, which recipes inject as
+`{{vault:ci-axcredrouter-config}}`). The resolve response picks the lane —
+agent, model, credential, reasoning effort — against live usage; the runner
+parses it with node and exports `REVIEW_AGENT`, `REVIEW_MODEL`,
+`REVIEW_VAULT_CREDENTIAL`, `REVIEW_DISPLAY_NAME` (`displayName`, falling back
+to the agent id), and `REVIEW_REASONING_EFFORT`. Only then does `axinstall`
+install the resolved agent, and the final `axrun` invocation passes `--model`
+and `--reasoning-effort` only when the lane supplied them. When every lane is
+exhausted, `axrun resolve` exits 1 and the job fails — an exhausted pool is a
+deliberate red check, not a silent skip.
+
+**Legacy direct mode.** When `REVIEW_PROFILE` is unset, the recipe env drives
+the run directly via `REVIEW_AGENT`, `REVIEW_MODEL`, `REVIEW_VAULT_CREDENTIAL`,
+`REVIEW_DISPLAY_NAME`, and optionally `REVIEW_PROVIDER`. This block remains for
+the gemini and opencode recipes, which don't route through axcredrouter.
+
+In both modes the runner substitutes `__REVIEW_REPOSITORY__`,
+`__REVIEW_PR_NUMBER__`, `__REVIEW_DISPLAY_NAME__`, and `__REVIEW_MODEL__` into
+the prompt with a node split/join pass (safe for `| & \` and newlines, unlike
+sed). The resolved credential name is only ever passed to
+`--vault-credential` — it never appears in the prompt or the posted review;
+public attribution uses the display name.
 
 ## Gotchas
 
