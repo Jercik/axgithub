@@ -1,16 +1,19 @@
 /**
- * Idempotently seed the Forgejo PR-review recipe set onto an axrecipe server.
+ * Idempotently seed the PR-review recipe sets (GitHub + Forgejo) onto an
+ * axrecipe server.
  *
  * Recipes and their prompt resources otherwise live only in the server
- * database (edited via axconsole). This script makes the Forgejo set
- * reproducible from version control: the canonical runner shell script
- * (review-recipes/review-runner.sh) and the two Forgejo prompts
- * (review-prompts/pr-review-*-forgejo-prompt.md) are the source of truth.
+ * database (edited via axconsole). This script makes both sets reproducible
+ * from version control: the canonical runner shell script
+ * (review-recipes/review-runner.sh) and the four prompts
+ * (review-prompts/pr-review-*-prompt.md) are the source of truth.
  *
- * The runner is forge-agnostic; the entire Forgejo coupling is in the prompt
- * resources, which post via the Forgejo Reviews API with curl. The workflow
- * supplies FORGEJO_TOKEN + REVIEW_API_BASE + REVIEW_REPOSITORY + REVIEW_PR_NUMBER
- * in the job env, which the spawned agent inherits.
+ * The runner is forge-agnostic; the entire forge coupling is in the prompt
+ * resources — the GitHub prompts post via the GitHub Reviews API with gh,
+ * the Forgejo prompts via the Forgejo Reviews API with curl. The workflow
+ * supplies the forge token and PR coordinates (REVIEW_REPOSITORY,
+ * REVIEW_PR_NUMBER, plus FORGEJO_TOKEN + REVIEW_API_BASE on Forgejo) in the
+ * job env, which the spawned agent inherits.
  *
  *   AXRECIPE_API_KEY=<admin key> AXRECIPE_URL=https://recipe.axkit.dev \
  *     node scripts/seed-review-recipes.ts
@@ -30,17 +33,15 @@ if (!apiKey) {
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "..");
 const runner = readFileSync(join(repoRoot, "review-recipes", "review-runner.sh"), "utf8");
-const codePrompt = readFileSync(
-  join(repoRoot, "review-prompts", "pr-review-code-forgejo-prompt.md"),
-  "utf8",
-);
-const approachPrompt = readFileSync(
-  join(repoRoot, "review-prompts", "pr-review-approach-forgejo-prompt.md"),
-  "utf8",
-);
 
-const CODE_PROMPT_RESOURCE = "pr-review-code-forgejo-prompt";
-const APPROACH_PROMPT_RESOURCE = "pr-review-approach-forgejo-prompt";
+function readPrompt(file: string): string {
+  return readFileSync(join(repoRoot, "review-prompts", file), "utf8");
+}
+
+const GITHUB_CODE_PROMPT_RESOURCE = "pr-review-code-github-prompt";
+const GITHUB_APPROACH_PROMPT_RESOURCE = "pr-review-approach-github-prompt";
+const FORGEJO_CODE_PROMPT_RESOURCE = "pr-review-code-forgejo-prompt";
+const FORGEJO_APPROACH_PROMPT_RESOURCE = "pr-review-approach-forgejo-prompt";
 
 interface Resource {
   resourceId: string;
@@ -51,17 +52,30 @@ interface Resource {
 
 const resources: Resource[] = [
   {
-    resourceId: CODE_PROMPT_RESOURCE,
-    name: "PR code review prompt (Forgejo)",
-    description: "Forgejo-shaped code review prompt; posts via the Forgejo Reviews API with curl.",
-    content: codePrompt,
+    resourceId: GITHUB_CODE_PROMPT_RESOURCE,
+    name: "PR code review prompt (GitHub)",
+    description: "GitHub-shaped code review prompt; posts via the GitHub Reviews API with gh.",
+    content: readPrompt("pr-review-code-prompt.md"),
   },
   {
-    resourceId: APPROACH_PROMPT_RESOURCE,
+    resourceId: GITHUB_APPROACH_PROMPT_RESOURCE,
+    name: "PR approach review prompt (GitHub)",
+    description:
+      "GitHub-shaped approach review prompt; posts via the GitHub Reviews API with gh.",
+    content: readPrompt("pr-review-approach-prompt.md"),
+  },
+  {
+    resourceId: FORGEJO_CODE_PROMPT_RESOURCE,
+    name: "PR code review prompt (Forgejo)",
+    description: "Forgejo-shaped code review prompt; posts via the Forgejo Reviews API with curl.",
+    content: readPrompt("pr-review-code-forgejo-prompt.md"),
+  },
+  {
+    resourceId: FORGEJO_APPROACH_PROMPT_RESOURCE,
     name: "PR approach review prompt (Forgejo)",
     description:
       "Forgejo-shaped approach review prompt; posts via the Forgejo Reviews API with curl.",
-    content: approachPrompt,
+    content: readPrompt("pr-review-approach-forgejo-prompt.md"),
   },
 ];
 
@@ -72,45 +86,70 @@ interface Recipe {
 }
 
 // The clean token forms ({{vault:...}} / {{resource:...}}) — never plaintext
-// secrets baked into env. The agent/model/credential matrix mirrors the GitHub
-// recipe set so the Forgejo reviews are equivalent.
+// secrets baked into env. Smart recipes carry no agent/model/credential:
+// axrun resolves the lane per run through axcredrouter (profile mode needs
+// both AXCREDROUTER to resolve and AXCREDS to fetch the resolved credential).
 const AXCREDS = "{{vault:ci-axcreds-config}}";
+const AXCREDROUTER = "{{vault:ci-axcredrouter-config}}";
 const PERPLEXITY = "{{vault:ci-perplexity-api-key}}";
 const ALLOW = "read,write,glob,grep,bash:*";
 
-const codeRecipes: Recipe[] = [
+const SMART_ENV: Record<string, string> = {
+  REVIEW_PROFILE: "smart-pr-review",
+  AXCREDROUTER,
+};
+
+const githubCodeRecipes: Recipe[] = [
   {
-    recipeId: "pr-review-code-forgejo-1",
-    name: "PR code review 1 (Forgejo)",
+    recipeId: "pr-review-code-smart",
+    name: "PR code review (smart)",
+    env: { ...SMART_ENV },
+  },
+];
+
+const githubApproachRecipes: Recipe[] = [
+  {
+    recipeId: "pr-review-approach-smart",
+    name: "PR approach review (smart)",
+    env: { ...SMART_ENV },
+  },
+  {
+    recipeId: "pr-review-approach-2",
+    name: "PR approach review 2",
     env: {
-      REVIEW_AGENT: "codex",
-      REVIEW_MODEL: "gpt-5.5",
-      REVIEW_DISPLAY_NAME: "Code Review 1",
-      REVIEW_VAULT_CREDENTIAL: "ci-codex-oauth-credentials",
+      REVIEW_AGENT: "gemini",
+      REVIEW_MODEL: "gemini-3.1-pro-preview",
+      REVIEW_DISPLAY_NAME: "Approach Review 2",
+      REVIEW_VAULT_CREDENTIAL: "ci-gemini-api-key",
+      GEMINI_CLI_TRUST_WORKSPACE: "true",
     },
   },
   {
-    recipeId: "pr-review-code-forgejo-2",
-    name: "PR code review 2 (Forgejo)",
+    recipeId: "pr-review-approach-3",
+    name: "PR approach review 3",
     env: {
-      REVIEW_AGENT: "claude",
-      REVIEW_MODEL: "opus",
-      REVIEW_DISPLAY_NAME: "Code Review 2 (Claude Code Opus)",
-      REVIEW_VAULT_CREDENTIAL: "ci-claude-claude3-oauth-credentials",
+      REVIEW_AGENT: "opencode",
+      REVIEW_MODEL: "GLM-5.2",
+      REVIEW_DISPLAY_NAME: "Approach Review 3 (OpenCode Wafer)",
+      REVIEW_VAULT_CREDENTIAL: "ci-opencode-wafer-credentials",
+      REVIEW_PROVIDER: "wafer.ai",
     },
   },
 ];
 
-const approachRecipes: Recipe[] = [
+const forgejoCodeRecipes: Recipe[] = [
   {
-    recipeId: "pr-review-approach-forgejo-1",
-    name: "PR approach review 1 (Forgejo)",
-    env: {
-      REVIEW_AGENT: "claude",
-      REVIEW_MODEL: "opus",
-      REVIEW_DISPLAY_NAME: "Approach Review 1 (Claude Code Opus)",
-      REVIEW_VAULT_CREDENTIAL: "ci-claude-claude3-oauth-credentials",
-    },
+    recipeId: "pr-review-code-forgejo-smart",
+    name: "PR code review (smart, Forgejo)",
+    env: { ...SMART_ENV },
+  },
+];
+
+const forgejoApproachRecipes: Recipe[] = [
+  {
+    recipeId: "pr-review-approach-forgejo-smart",
+    name: "PR approach review (smart, Forgejo)",
+    env: { ...SMART_ENV },
   },
   {
     recipeId: "pr-review-approach-forgejo-2",
@@ -134,16 +173,20 @@ const approachRecipes: Recipe[] = [
       REVIEW_PROVIDER: "wafer.ai",
     },
   },
-  {
-    recipeId: "pr-review-approach-forgejo-4",
-    name: "PR approach review 4 (Forgejo)",
-    env: {
-      REVIEW_AGENT: "codex",
-      REVIEW_MODEL: "gpt-5.5",
-      REVIEW_DISPLAY_NAME: "Approach Review 4",
-      REVIEW_VAULT_CREDENTIAL: "ci-codex-oauth-credentials",
-    },
-  },
+];
+
+// Replaced by the smart set. DELETE /recipes/:id responds 409 when runs
+// exist, so the seeder never deletes — it reports which of these are still
+// live so an operator can descope the execute keys and prune manually.
+const staleRecipeIds = [
+  "pr-review-code-1",
+  "pr-review-code-2",
+  "pr-review-approach-1",
+  "pr-review-approach-4",
+  "pr-review-code-forgejo-1",
+  "pr-review-code-forgejo-2",
+  "pr-review-approach-forgejo-1",
+  "pr-review-approach-forgejo-4",
 ];
 
 function buildSettings(recipe: Recipe, promptResource: string, withPerplexity: boolean) {
@@ -157,7 +200,9 @@ function buildSettings(recipe: Recipe, promptResource: string, withPerplexity: b
   return { command: "sh", args: ["-lc", runner], env };
 }
 
-const RECIPE_DESCRIPTION =
+const GITHUB_RECIPE_DESCRIPTION =
+  "GitHub PR review slot. Posts via the GitHub Reviews API. Seeded from axgithub/scripts/seed-review-recipes.ts.";
+const FORGEJO_RECIPE_DESCRIPTION =
   "Forgejo PR review slot. Posts via the Forgejo Reviews API. Seeded from axgithub/scripts/seed-review-recipes.ts.";
 
 async function api(method: string, path: string, body?: unknown): Promise<Response> {
@@ -194,7 +239,7 @@ async function upsertResource(r: Resource): Promise<void> {
     name: r.name,
     description: r.description,
     content: r.content,
-    changeNote: "Sync Forgejo review prompt from axgithub source.",
+    changeNote: "Sync review prompt from axgithub source.",
   });
   if (!res.ok) throw new Error(`update resource ${r.resourceId}: ${res.status} ${await res.text()}`);
   console.log(`resource ${r.resourceId}: updated`);
@@ -213,6 +258,7 @@ function sameSettings(a: RecipeSettings, b: RecipeSettings): boolean {
 async function upsertRecipe(
   recipeId: string,
   name: string,
+  description: string,
   settings: RecipeSettings,
 ): Promise<void> {
   const get = await api("GET", `/api/v1/recipes/${encodeURIComponent(recipeId)}?raw=true`);
@@ -220,7 +266,7 @@ async function upsertRecipe(
     const res = await api("POST", "/api/v1/recipes", {
       recipeId,
       name,
-      description: RECIPE_DESCRIPTION,
+      description,
       settings,
     });
     if (!res.ok) throw new Error(`create recipe ${recipeId}: ${res.status} ${await res.text()}`);
@@ -235,26 +281,64 @@ async function upsertRecipe(
   }
   const res = await api("PUT", `/api/v1/recipes/${encodeURIComponent(recipeId)}`, {
     name,
-    description: RECIPE_DESCRIPTION,
+    description,
     settings,
-    changeNote: "Sync Forgejo review recipe from axgithub source.",
+    changeNote: "Sync review recipe from axgithub source.",
   });
   if (!res.ok) throw new Error(`update recipe ${recipeId}: ${res.status} ${await res.text()}`);
   console.log(`recipe ${recipeId}: updated`);
 }
 
+async function listStaleRecipes(ids: string[]): Promise<string[]> {
+  const stale: string[] = [];
+  for (const id of ids) {
+    const get = await api("GET", `/api/v1/recipes/${encodeURIComponent(id)}`);
+    if (get.status === 404) continue;
+    if (!get.ok) throw new Error(`get recipe ${id}: ${get.status} ${await get.text()}`);
+    stale.push(id);
+  }
+  return stale;
+}
+
 for (const r of resources) {
   await upsertResource(r);
 }
-for (const recipe of codeRecipes) {
-  await upsertRecipe(recipe.recipeId, recipe.name, buildSettings(recipe, CODE_PROMPT_RESOURCE, true));
-}
-for (const recipe of approachRecipes) {
+for (const recipe of githubCodeRecipes) {
   await upsertRecipe(
     recipe.recipeId,
     recipe.name,
-    buildSettings(recipe, APPROACH_PROMPT_RESOURCE, false),
+    GITHUB_RECIPE_DESCRIPTION,
+    buildSettings(recipe, GITHUB_CODE_PROMPT_RESOURCE, true),
   );
+}
+for (const recipe of githubApproachRecipes) {
+  await upsertRecipe(
+    recipe.recipeId,
+    recipe.name,
+    GITHUB_RECIPE_DESCRIPTION,
+    buildSettings(recipe, GITHUB_APPROACH_PROMPT_RESOURCE, false),
+  );
+}
+for (const recipe of forgejoCodeRecipes) {
+  await upsertRecipe(
+    recipe.recipeId,
+    recipe.name,
+    FORGEJO_RECIPE_DESCRIPTION,
+    buildSettings(recipe, FORGEJO_CODE_PROMPT_RESOURCE, true),
+  );
+}
+for (const recipe of forgejoApproachRecipes) {
+  await upsertRecipe(
+    recipe.recipeId,
+    recipe.name,
+    FORGEJO_RECIPE_DESCRIPTION,
+    buildSettings(recipe, FORGEJO_APPROACH_PROMPT_RESOURCE, false),
+  );
+}
+
+const stale = await listStaleRecipes(staleRecipeIds);
+if (stale.length > 0) {
+  console.log(`stale, descope + prune manually: ${stale.join(", ")}`);
 }
 
 console.log("Done.");
