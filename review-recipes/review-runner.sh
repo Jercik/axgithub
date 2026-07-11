@@ -1,16 +1,40 @@
 set -eu
-if [ -n "${NODE_AUTH_TOKEN:-}" ]; then
-cat > /tmp/axkit.npmrc <<NPMRC
-registry=https://npm.j4k.dev/
-//npm.j4k.dev/:_authToken=${NODE_AUTH_TOKEN}
-NPMRC
-export NPM_CONFIG_USERCONFIG=/tmp/axkit.npmrc
-export NPM_CONFIG_REGISTRY=https://npm.j4k.dev/
-fi
+# No registry auth exists when this recipe runs, by design: both forges'
+# pr-review workflows fetch @j4k tooling into a trusted prefix, then strip the
+# credential (rm -f ~/.npmrc; the Forge also blanks its OIDC request vars)
+# before axrecipe touches attacker-controlled PR content, since any credential
+# reachable from this process tree is exfiltratable by prompt injection. The
+# private tools therefore must arrive pre-fetched on PATH; in CI a missing bin
+# is a workflow bug, and falling through to npm exec there would resolve the
+# @j4k scope against the public default registry (a squat target). The npm
+# exec fallback serves local runs where the operator's npm config maps @j4k.
+require_prefetched() {
+  echo "$1 not on PATH: the workflow must pre-fetch $2 into the trusted review-tools prefix (no registry auth exists after the credential strip)" >&2
+  exit 1
+}
+run_axrun() {
+  if command -v axrun >/dev/null 2>&1; then
+    axrun "$@"
+    return
+  fi
+  if [ -n "${GITHUB_ACTIONS:-}" ]; then
+    require_prefetched axrun @j4k/axrun@2.12.0
+  fi
+  npm exec --yes --package=@j4k/axrun@2.12.0 -- axrun "$@"
+}
+run_axinstall() {
+  if command -v axinstall >/dev/null 2>&1; then
+    axinstall "$@"
+    return
+  fi
+  if [ -n "${GITHUB_ACTIONS:-}" ]; then
+    require_prefetched axinstall @j4k/axinstall@3.0.7
+  fi
+  npm exec --yes --package=@j4k/axinstall@3.0.7 -- axinstall "$@"
+}
 if [ -n "${REVIEW_PROFILE:-}" ]; then
   # Exit 1 = all lanes exhausted (the intended red check); set -e fails the job here.
-  npm exec --yes --package=axrun@latest -- \
-    axrun resolve --profile "$REVIEW_PROFILE" --json > /tmp/axrun-resolve.json
+  run_axrun resolve --profile "$REVIEW_PROFILE" --json > /tmp/axrun-resolve.json
   cat > /tmp/parse-resolve.cjs <<'PARSE_RESOLVE'
 const fs = require("fs");
 // npm exec can print banners around the payload; keep the last line that parses as a JSON object.
@@ -44,9 +68,9 @@ PARSE_RESOLVE
   export REVIEW_AGENT REVIEW_MODEL REVIEW_VAULT_CREDENTIAL REVIEW_DISPLAY_NAME REVIEW_REASONING_EFFORT
 fi
 if [ "$REVIEW_AGENT" = "cursor" ]; then
-  npm exec --yes --package=axinstall@latest -- axinstall "$REVIEW_AGENT"
+  run_axinstall "$REVIEW_AGENT"
 else
-  npm exec --yes --package=axinstall@latest -- axinstall "$REVIEW_AGENT" --with npm
+  run_axinstall "$REVIEW_AGENT" --with npm
 fi
 if [ "$REVIEW_AGENT" = "cursor" ]; then
   case ":$PATH:" in
@@ -112,8 +136,7 @@ effort_args=""
 if [ -n "${REVIEW_REASONING_EFFORT:-}" ]; then
   effort_args="--reasoning-effort $REVIEW_REASONING_EFFORT"
 fi
-npm exec --yes --package=axrun@latest -- \
-axrun --agent "$REVIEW_AGENT" \
+run_axrun --agent "$REVIEW_AGENT" \
 $provider_args \
 $model_args \
 $effort_args \
