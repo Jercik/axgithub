@@ -115,15 +115,17 @@ jobs:
           echo "//code.j4k.dev/api/packages/j4k/npm/:_authToken=${NPM_TOKEN}" >> ~/.npmrc
 
       - name: Fetch review tooling
-        # Version range is template-controlled, not read from the PR, so this
+        # Version ranges are template-controlled, not read from the PR, so this
         # credential-bearing install processes no untrusted input; --prefix installs
         # to a fresh temp dir outside the workspace (mktemp) and --ignore-scripts
         # blocks any dependency lifecycle hook from running while ~/.npmrc holds the
-        # token.
+        # token. axrun and axinstall must be pre-fetched too: the recipe runner
+        # resolves them from PATH at review time, after the credential strip below
+        # has made the registry unreachable.
         run: |
           set -eu
           review_tools="$(mktemp -d)"
-          npm install --prefix "$review_tools" --ignore-scripts @j4k/axrecipe@8
+          npm install --prefix "$review_tools" --ignore-scripts @j4k/axrecipe@8 @j4k/axrun@2 @j4k/axinstall@3
           echo "REVIEW_TOOLS_DIR=$review_tools" >> "$GITHUB_ENV"
 
       - name: Remove registry credentials
