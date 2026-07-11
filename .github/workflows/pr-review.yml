@@ -85,20 +85,69 @@ jobs:
           ref: ${{ steps.pr.outputs.head_sha }}
           fetch-depth: 10
 
+      - name: Strip untrusted project files
+        # The checked-out PR tree is attacker-controlled even on a same-repo PR
+        # (the fork guard only stops fork heads, not a malicious collaborator).
+        # Drop the PR-controlled install config before the credential steps below:
+        # the fetch installs to a trusted --prefix that ignores this cwd config, but
+        # stripping ./.npmrc upholds the "no PR ./.npmrc beside a live token"
+        # invariant, and node_modules goes too so nothing PR-committed can shadow the
+        # resolved bin if the --prefix or absolute-path run is ever changed.
+        run: rm -rf .npmrc node_modules
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version: 24
-          registry-url: https://npm.j4k.dev/
+
+      - name: Configure registry auth
+        # No registry-url on setup-node above: it emits no @j4k scope line and would
+        # point the DEFAULT registry at the Forge, 404ing public transitive deps — so
+        # the scoped ~/.npmrc is written here by hand. GitHub has no Forgejo OIDC
+        # issuer, so the credential is the NPM_TOKEN secret input (callers pass their
+        # FORGEJO_NPM_TOKEN read PAT as its value); the shell expands it to the
+        # literal token, and secrets.* values are auto-masked in logs.
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -eu
+          echo "@j4k:registry=https://code.j4k.dev/api/packages/j4k/npm/" > ~/.npmrc
+          echo "//code.j4k.dev/api/packages/j4k/npm/:_authToken=${NPM_TOKEN}" >> ~/.npmrc
+
+      - name: Fetch review tooling
+        # Version ranges are template-controlled, not read from the PR, so this
+        # credential-bearing install processes no untrusted input; --prefix installs
+        # to a fresh temp dir outside the workspace (mktemp) and --ignore-scripts
+        # blocks any dependency lifecycle hook from running while ~/.npmrc holds the
+        # token. axrun and axinstall must be pre-fetched too: the recipe runner
+        # resolves them from PATH at review time, after the credential strip below
+        # has made the registry unreachable.
+        run: |
+          set -eu
+          review_tools="$(mktemp -d)"
+          npm install --prefix "$review_tools" --ignore-scripts @j4k/axrecipe@8 @j4k/axrun@2 @j4k/axinstall@3
+          echo "REVIEW_TOOLS_DIR=$review_tools" >> "$GITHUB_ENV"
+
+      - name: Remove registry credentials
+        # axrecipe below is an LLM agent that loads the PR's files and instructions
+        # with command access; a prompt injection could read ~/.npmrc, so delete the
+        # registry token before it touches attacker-controlled PR content. The bin is
+        # already resolved, so the review needs no registry access from here on.
+        run: rm -f ~/.npmrc
 
       - name: Run ${{ inputs.label }} review
+        # Run the pre-fetched bin directly; npm exec would re-resolve @j4k/axrecipe
+        # from the registry the credential strip above just made unreachable. The
+        # PATH prepend restores the node_modules/.bin npm exec would have added, so a
+        # bin axrecipe spawns by bare name still resolves — only from the trusted
+        # prefix, never the stripped PR node_modules.
         env:
           GH_TOKEN: ${{ github.token }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           AXRECIPE_URL: https://recipe.axkit.dev
           AXRECIPE_API_KEY: ${{ secrets.AXRECIPE_API_KEY }}
           REVIEW_REPOSITORY: ${{ github.repository }}
           REVIEW_PR_NUMBER: ${{ inputs.pr_number }}
         run: >-
-          npm exec --yes --package=axrecipe@latest --
-          axrecipe run ${{ matrix.entry.recipe || matrix.entry }}
+          PATH="$REVIEW_TOOLS_DIR/node_modules/.bin:$PATH"
+          "$REVIEW_TOOLS_DIR/node_modules/.bin/axrecipe"
+          run ${{ matrix.entry.recipe || matrix.entry }}

@@ -31,10 +31,10 @@ values are deduplicated by GitHub.
 
 **Secrets**
 
-| Secret             | Purpose                            |
-| ------------------ | ---------------------------------- |
-| `NPM_TOKEN`        | Auth for the private npm registry. |
-| `AXRECIPE_API_KEY` | Auth for the axrecipe server.      |
+| Secret             | Purpose                                                          |
+| ------------------ | --------------------------------------------------------------- |
+| `NPM_TOKEN`        | Read auth for the `@j4k` registry on `code.j4k.dev`. Callers pass their `FORGEJO_NPM_TOKEN` read PAT as this input's value; the name is kept for caller compatibility. |
+| `AXRECIPE_API_KEY` | Auth for the axrecipe server.                                   |
 
 **Caller example**
 
@@ -65,7 +65,7 @@ jobs:
          {"recipe":"pr-review-code-smart","name":"code smart 2"}]
       pr_number: ${{ github.event.pull_request.number || inputs.pr_number }}
     secrets:
-      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      NPM_TOKEN: ${{ secrets.FORGEJO_NPM_TOKEN }}
       AXRECIPE_API_KEY: ${{ secrets.AXRECIPE_API_KEY }}
 ```
 
