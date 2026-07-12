@@ -197,7 +197,8 @@ function buildSettings(recipe: Recipe, promptResource: string, withPerplexity: b
     AXCREDS,
     ...(withPerplexity ? { PERPLEXITY_API_KEY: PERPLEXITY } : {}),
   };
-  return { command: "sh", args: ["-lc", runner], env };
+  // Non-login shell: Debian /etc/profile resets PATH in `sh -l`, hiding the workflow's pre-fetched bins.
+  return { command: "sh", args: ["-c", runner], env };
 }
 
 const GITHUB_RECIPE_DESCRIPTION =
