@@ -86,9 +86,10 @@ interface Recipe {
 }
 
 // The clean token forms ({{vault:...}} / {{resource:...}}) — never plaintext
-// secrets baked into env. Smart recipes carry no agent/model/credential:
-// axrun resolves the lane per run through axcredrouter (profile mode needs
-// both AXCREDROUTER to resolve and AXCREDS to fetch the resolved credential).
+// secrets baked into env. Profile recipes (smart, fable) carry no
+// agent/model/credential: axrun resolves the lane per run through axcredrouter
+// (profile mode needs both AXCREDROUTER to resolve and AXCREDS to fetch the
+// resolved credential).
 const AXCREDS = "{{vault:ci-axcreds-config}}";
 const AXCREDROUTER = "{{vault:ci-axcredrouter-config}}";
 const PERPLEXITY = "{{vault:ci-perplexity-api-key}}";
@@ -99,11 +100,21 @@ const SMART_ENV: Record<string, string> = {
   AXCREDROUTER,
 };
 
+const FABLE_ENV: Record<string, string> = {
+  REVIEW_PROFILE: "claude-fable-review",
+  AXCREDROUTER,
+};
+
 const githubCodeRecipes: Recipe[] = [
   {
     recipeId: "pr-review-code-smart",
     name: "PR code review (smart)",
     env: { ...SMART_ENV },
+  },
+  {
+    recipeId: "pr-review-code-fable",
+    name: "PR code review (fable)",
+    env: { ...FABLE_ENV },
   },
 ];
 
@@ -112,6 +123,11 @@ const githubApproachRecipes: Recipe[] = [
     recipeId: "pr-review-approach-smart",
     name: "PR approach review (smart)",
     env: { ...SMART_ENV },
+  },
+  {
+    recipeId: "pr-review-approach-fable",
+    name: "PR approach review (fable)",
+    env: { ...FABLE_ENV },
   },
   {
     recipeId: "pr-review-approach-2",
@@ -143,6 +159,11 @@ const forgejoCodeRecipes: Recipe[] = [
     name: "PR code review (smart, Forgejo)",
     env: { ...SMART_ENV },
   },
+  {
+    recipeId: "pr-review-code-forgejo-fable",
+    name: "PR code review (fable, Forgejo)",
+    env: { ...FABLE_ENV },
+  },
 ];
 
 const forgejoApproachRecipes: Recipe[] = [
@@ -150,6 +171,11 @@ const forgejoApproachRecipes: Recipe[] = [
     recipeId: "pr-review-approach-forgejo-smart",
     name: "PR approach review (smart, Forgejo)",
     env: { ...SMART_ENV },
+  },
+  {
+    recipeId: "pr-review-approach-forgejo-fable",
+    name: "PR approach review (fable, Forgejo)",
+    env: { ...FABLE_ENV },
   },
   {
     recipeId: "pr-review-approach-forgejo-2",
