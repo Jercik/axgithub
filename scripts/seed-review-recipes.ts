@@ -93,7 +93,7 @@ interface Recipe {
 const AXCREDS = "{{vault:ci-axcreds-config}}";
 const AXCREDROUTER = "{{vault:ci-axcredrouter-config}}";
 const PERPLEXITY = "{{vault:ci-perplexity-api-key}}";
-const ALLOW = "read,write,glob,grep,bash:*";
+const ALLOW = "read,glob,grep,bash:*";
 
 const SMART_ENV: Record<string, string> = {
   REVIEW_PROFILE: "smart-pr-review",
