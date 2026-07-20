@@ -71,7 +71,6 @@ const reviewDeny = [
   "ExitPlanMode",
   "ExitWorktree",
   "ListMcpResourcesTool",
-  "LSP",
   "Monitor",
   "NotebookEdit",
   "PushNotification",
@@ -89,7 +88,6 @@ const reviewDeny = [
   "TaskOutput",
   "TaskStop",
   "TaskUpdate",
-  "TodoWrite",
   "ToolSearch",
   "WaitForMcpServers",
   "WebFetch",
@@ -141,7 +139,6 @@ exec /tmp/axreview-bin/codex-real \
   -c 'web_search="disabled"' \
   -c 'include_apps_instructions=false' \
   -c 'include_collaboration_mode_instructions=false' \
-  -c 'include_environment_context=false' \
   -c 'include_permissions_instructions=false' \
   -c 'skills.include_instructions=false' \
   -c 'skills.bundled.enabled=false' \
