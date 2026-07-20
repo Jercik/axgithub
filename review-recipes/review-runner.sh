@@ -32,6 +32,123 @@ run_axinstall() {
   fi
   npm exec --yes --package=@j4k/axinstall@3.0.7 -- axinstall "$@"
 }
+configure_claude_review() {
+  claude_path="$(command -v claude || true)"
+  if [ -z "$claude_path" ]; then
+    require_prefetched claude @anthropic-ai/claude-code
+  fi
+  review_bin_dir=/tmp/axreview-bin
+  rm -rf "$review_bin_dir"
+  mkdir -p "$review_bin_dir"
+  ln -s "$claude_path" "$review_bin_dir/claude-real"
+  cat > "$review_bin_dir/claude" <<'CLAUDE_WRAPPER'
+#!/bin/sh
+set -eu
+node <<'CONFIGURE_CLAUDE'
+const fs = require("fs");
+const path = require("path");
+
+const configDirectory = process.env.CLAUDE_CONFIG_DIR;
+if (!configDirectory) throw new Error("CLAUDE_CONFIG_DIR is required for the review agent");
+
+const settingsPath = path.join(configDirectory, "settings.json");
+const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+const permissions =
+  settings.permissions && typeof settings.permissions === "object" && !Array.isArray(settings.permissions)
+    ? settings.permissions
+    : {};
+const existingDeny = Array.isArray(permissions.deny) ? permissions.deny : [];
+const reviewDeny = [
+  "Agent",
+  "AskUserQuestion",
+  "CronCreate",
+  "CronDelete",
+  "CronList",
+  "DesignSync",
+  "Edit",
+  "EnterPlanMode",
+  "EnterWorktree",
+  "ExitPlanMode",
+  "ExitWorktree",
+  "ListMcpResourcesTool",
+  "Monitor",
+  "NotebookEdit",
+  "PushNotification",
+  "ReadMcpResourceTool",
+  "RemoteTrigger",
+  "ReportFindings",
+  "ScheduleWakeup",
+  "SendMessage",
+  "SendUserFile",
+  "ShareOnboardingGuide",
+  "Skill",
+  "TaskCreate",
+  "TaskGet",
+  "TaskList",
+  "TaskOutput",
+  "TaskStop",
+  "TaskUpdate",
+  "ToolSearch",
+  "WaitForMcpServers",
+  "WebFetch",
+  "WebSearch",
+  "Workflow",
+  "Write",
+];
+
+Object.assign(settings, {
+  disableAgentView: true,
+  disableArtifact: true,
+  disableBundledSkills: true,
+  disableClaudeAiConnectors: true,
+  disableRemoteControl: true,
+  disableWorkflows: true,
+  includeGitInstructions: false,
+  permissions: {
+    ...permissions,
+    deny: [...new Set([...existingDeny, ...reviewDeny])],
+  },
+});
+fs.writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
+CONFIGURE_CLAUDE
+exec /tmp/axreview-bin/claude-real --disable-slash-commands --strict-mcp-config "$@"
+CLAUDE_WRAPPER
+  chmod +x "$review_bin_dir/claude"
+  export AXEXEC_CLAUDE_PATH="$review_bin_dir/claude"
+}
+configure_codex_review() {
+  codex_path="$(command -v codex || true)"
+  if [ -z "$codex_path" ]; then
+    require_prefetched codex @openai/codex
+  fi
+  review_bin_dir=/tmp/axreview-bin
+  rm -rf "$review_bin_dir"
+  mkdir -p "$review_bin_dir"
+  ln -s "$codex_path" "$review_bin_dir/codex-real"
+  cat > "$review_bin_dir/codex" <<'CODEX_WRAPPER'
+#!/bin/sh
+set -eu
+exec /tmp/axreview-bin/codex-real \
+  -c 'features.apps=false' \
+  -c 'features.plugins=false' \
+  -c 'features.goals=false' \
+  -c 'features.tool_suggest=false' \
+  -c 'features.multi_agent=false' \
+  -c 'features.multi_agent_v2=false' \
+  -c 'features.js_repl=false' \
+  -c 'web_search="disabled"' \
+  -c 'include_apps_instructions=false' \
+  -c 'include_collaboration_mode_instructions=false' \
+  -c 'include_permissions_instructions=false' \
+  -c 'skills.include_instructions=false' \
+  -c 'skills.bundled.enabled=false' \
+  -c 'tools.request_user_input=false' \
+  -c 'personality="none"' \
+  "$@"
+CODEX_WRAPPER
+  chmod +x "$review_bin_dir/codex"
+  export AXEXEC_CODEX_PATH="$review_bin_dir/codex"
+}
 if [ -n "${REVIEW_PROFILE:-}" ]; then
   # Exit 1 = all lanes exhausted (the intended red check); set -e fails the job here.
   run_axrun resolve --profile "$REVIEW_PROFILE" --json > /tmp/axrun-resolve.json
@@ -71,6 +188,12 @@ if [ "$REVIEW_AGENT" = "cursor" ]; then
   run_axinstall "$REVIEW_AGENT"
 else
   run_axinstall "$REVIEW_AGENT" --with npm
+fi
+if [ "$REVIEW_AGENT" = "claude" ]; then
+  configure_claude_review
+fi
+if [ "$REVIEW_AGENT" = "codex" ]; then
+  configure_codex_review
 fi
 if [ "$REVIEW_AGENT" = "cursor" ]; then
   case ":$PATH:" in
