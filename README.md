@@ -101,6 +101,55 @@ sed). The resolved credential name is only ever passed to
 `--vault-credential` — it never appears in the prompt or the posted review;
 public attribution uses the display name.
 
+### Forgejo structured-review recipes
+
+`scripts/seed-review-recipes.ts` also creates a separate, versioned Forgejo
+recipe for each enabled review slot:
+
+- `forgejo-review-approach-smart-1`
+- `forgejo-review-approach-smart-2`
+- `forgejo-review-approach-3`
+- `forgejo-review-code-smart-1`
+- `forgejo-review-code-smart-2`
+
+These replace the existing Forgejo direct-post recipes at the OIDC cutover.
+During rollout the seeder keeps that legacy set in the explicitly isolated
+`seedLegacyForgejoDirectPostRecipes` path so current workflows continue to run;
+there is no runtime fallback between the two sets. The structured slots are the
+OIDC migration contract shared with `axrecipe`, `j4k/cluster`, and `j4k/align`.
+An agent receives only the nonsecret `REVIEW_CONTEXT_PATH` and
+`REVIEW_OUTPUT_PATH` Forgejo inputs. It must write one exact JSON document:
+
+```json
+{
+  "body": "A concise non-empty summary",
+  "comments": [
+    {"path": "src/file.ts", "new_position": 12, "body": "A finding"}
+  ]
+}
+```
+
+Each comment has `path`, `body`, and exactly one positive position:
+`new_position` or `old_position`. The generated structured runner rejects
+unknown keys, unsafe paths, missing/oversized text, invalid positions, more
+than 50 comments, invalid JSON, and symlinked/oversized output. The trusted
+outer process may use the existing `AXCREDS`/`AXCREDROUTER` path to launch the
+selected model, but axexec scrubs that configuration before spawning the
+reviewer. Perplexity and ambient Forgejo, Actions OIDC/runtime, npm, GitHub, CI,
+and SSH credentials are absent from the child environment. The agent receives
+no Forgejo token, API base, repository/PR identity, commit SHA, or review-posting
+instruction. A trusted poster must bind the accepted handoff to the
+OIDC-authenticated repository/PR/head/slot, re-fetch the current diff, and
+validate each path and position before it posts the review.
+
+After every managed Forgejo workflow has moved to the structured slots, finish
+the hard cutover in one change: delete
+`seedLegacyForgejoDirectPostRecipes` and its isolated resources/recipe arrays,
+remove the old Forgejo recipe IDs from the cluster-managed execute-key scope,
+and reseed. Historical recipes with recorded runs may remain in the database,
+but no seeder or key will authorize them. Do not add a compatibility flag or
+fall back to the old IDs.
+
 ## Gotchas
 
 - **`pr_number` is a string, not a number.** Expression interpolation
