@@ -129,6 +129,10 @@ test("structured runner prepares helpers before handing its descriptor to axrun"
   assert.doesNotMatch(command, /review_bin_dir=\/tmp|node \/tmp|cat \/tmp/u);
   assert.doesNotMatch(command, /exec \$TMPDIR\/axreview-bin\/(?:claude|codex)-real/u);
   assert.doesNotMatch(command, /> \$TMPDIR\/prompt\.md/u);
+  const shellQuoteSource = `String(value).replace(/'/g, "'\\\\''")`;
+  const preparationBlock = command.split("WRITE_STRUCTURED_REVIEW_STATE")[1];
+  assert.ok(preparationBlock);
+  assert.match(preparationBlock, new RegExp(shellQuoteSource.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
 });
 
 test("composed reviewer child environment is a positive allowlist", () => {

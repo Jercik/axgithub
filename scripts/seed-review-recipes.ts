@@ -335,7 +335,7 @@ $effort_args \\
   const preparationInvocation = `node - "$AXRUN_PREPARED_STATE" "$TMPDIR/prompt.md" <<'WRITE_STRUCTURED_REVIEW_STATE'
 const fs = require("node:fs");
 const [output, promptPath] = process.argv.slice(2);
-const shellQuote = (value) => "'" + String(value).replace(/'/g, "'\\''") + "'";
+const shellQuote = (value) => "'" + String(value).replace(/'/g, "'\\\\''") + "'";
 for (const [environmentName, marker, realName] of [
   ["AXEXEC_CLAUDE_PATH", "__AXGITHUB_CLAUDE_REAL__", "claude-real"],
   ["AXEXEC_CODEX_PATH", "__AXGITHUB_CODEX_REAL__", "codex-real"],

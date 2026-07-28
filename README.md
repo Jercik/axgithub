@@ -193,6 +193,10 @@ read-only to the untrusted generator identity (or expose it via a read-only
 mount). A writable tool prefix would be ambient write authority, not an
 acceptable prefetch cache.
 
+The wrapper targets the hosted Linux/macOS runner layout explicitly: core
+utilities and `sh` under `/bin`, `env` under `/usr/bin`, and `mktemp` under
+either `/usr/bin` or `/bin`. A custom runner image must provide those paths.
+
 This is a process-environment boundary, not a same-UID sandbox. The consuming
 workflow must run the untrusted generator in an OS identity or container that
 cannot inspect secret-bearing ancestors through `/proc`, and it must not leave
