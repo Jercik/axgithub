@@ -116,6 +116,9 @@ test("structured runner prepares helpers before handing its descriptor to axrun"
   assert.match(command, /unlinkSync\(handoffPath\)/u);
   assert.match(command, /--credential-handoff-fd 4/u);
   assert.match(command, /"TMPDIR=\$review_tmp"/u);
+  assert.match(command, /typeof resolved\.agentId !== "string"/u);
+  assert.match(command, /typeof resolved\.credentialName !== "string"/u);
+  assert.match(command, /cat > "\$TMPDIR\/substitute-prompt\.cjs"/u);
   assert.match(command, /run_axinstall\(\) \{ :; \}/u);
   assert.doesNotMatch(command, /package=@j4k\/axinstall/u);
   assert.doesNotMatch(command, /@j4k\/axrun@2\.12\.0/u);
@@ -228,15 +231,9 @@ fs.writeFileSync(process.env.REVIEW_OUTPUT_PATH, JSON.stringify({ schemaVersion:
       "LANG",
       "LC_ALL",
       "PATH",
-      "PROMPT_TEXT",
       "PWD",
-      "REVIEW_AGENT",
       "REVIEW_CONTEXT_PATH",
-      "REVIEW_DISPLAY_NAME",
-      "REVIEW_MODEL",
       "REVIEW_OUTPUT_PATH",
-      "REVIEW_PROFILE",
-      "REVIEW_REASONING_EFFORT",
       "SHLVL",
       "TERM",
       "TMPDIR",

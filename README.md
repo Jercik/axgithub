@@ -182,11 +182,12 @@ Only then does the wrapper ask `@j4k/axrun@5` to export the selected credential
 into an exclusive `0600` file and `exec` a clean Node launcher. The launcher
 opens and unlinks that file, maps it to fd 4 only in axrun, closes its own copy
 immediately, and remains a credential-free parent. The final environment
-contains the scratch `HOME`, prepared `PATH` and optional `AXEXEC_*_PATH`, the
-two axrecipe paths, basic locale/process state, and nonsecret `CI`,
-`GITHUB_ACTIONS`, and `GITHUB_WORKSPACE` metadata. Axrun validates, reads, and
-closes fd 4 before it spawns the selected model. In this v5 direct-handoff flow
-the provider comes from the agent-bound credential descriptor;
+contains the scratch `HOME` and `TMPDIR`, prepared `PATH` and optional
+`AXEXEC_*_PATH`, the two axrecipe paths, basic locale/process state, and
+nonsecret `CI`, `GITHUB_ACTIONS`, and `GITHUB_WORKSPACE` metadata. Axrun
+validates, reads, and closes fd 4 before it spawns the selected model. In this
+v5 direct-handoff flow the provider comes from the agent-bound credential
+descriptor;
 `REVIEW_PROVIDER` is solely a legacy direct-mode input and must not be
 reintroduced here.
 
@@ -204,9 +205,10 @@ utilities and `sh` under `/bin`, `env` under `/usr/bin`, and `mktemp` under
 either `/usr/bin` or `/bin`. A custom runner image must provide those paths.
 
 This is a process-environment boundary, not a same-UID sandbox. The consuming
-workflow must run the untrusted generator in an OS identity or container that
-cannot inspect secret-bearing ancestors through `/proc`, and it must not leave
-a trusted poster step in that identity. It must also use
+workflow must isolate both package lifecycle processes and the untrusted
+generator so neither can inspect the wrapper or workflow ancestors through
+`/proc`, and it must not leave a trusted poster step in that identity. It must
+also use
 `persist-credentials: false` and a credential-free home: environment isolation
 cannot remove credentials stored in `.git/config`, `~/.npmrc`, SSH/Git/GitHub
 configuration, or another process's environment.

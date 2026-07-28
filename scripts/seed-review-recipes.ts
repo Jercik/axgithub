@@ -381,12 +381,23 @@ WRITE_STRUCTURED_REVIEW_STATE`;
     "exec /tmp/axreview-bin/codex-real",
     "exec __AXGITHUB_CODEX_REAL__",
   );
+  const expectedTemporaryPathCount = 10;
+  const temporaryPathCount = withWrapperMarkers.match(/\/tmp\//gu)?.length ?? 0;
+  if (temporaryPathCount !== expectedTemporaryPathCount) {
+    throw new Error(
+      `structured review runner expected ${expectedTemporaryPathCount} temporary paths, found ${temporaryPathCount}`,
+    );
+  }
   const tempScopedRunner = withWrapperMarkers.replace(/\/tmp\//gu, () => "$TMPDIR/");
   const structuredGenericRunner = replaceExactlyOnce(
     replaceExactlyOnce(
-      tempScopedRunner,
-      '> $TMPDIR/prompt.md',
-      '> "$TMPDIR/prompt.md"',
+      replaceExactlyOnce(
+        tempScopedRunner,
+        '> $TMPDIR/prompt.md',
+        '> "$TMPDIR/prompt.md"',
+      ),
+      "cat > $TMPDIR/substitute-prompt.cjs",
+      'cat > "$TMPDIR/substitute-prompt.cjs"',
     ),
     "node $TMPDIR/substitute-prompt.cjs $TMPDIR/prompt.md",
     'node "$TMPDIR/substitute-prompt.cjs" "$TMPDIR/prompt.md"',
@@ -402,6 +413,8 @@ WRITE_STRUCTURED_REVIEW_STATE`;
   return structuredRunnerTemplate.replace(marker, () => structuredGenericRunner);
 }
 
+const structuredForgejoRunner = buildStructuredForgejoRunner();
+
 function buildStructuredForgejoSettings(
   recipe: Recipe,
   promptResource: string,
@@ -412,7 +425,7 @@ function buildStructuredForgejoSettings(
     PROMPT_TEXT: `{{resource:${promptResource}}}`,
     AXCREDS,
   };
-  return { command: "sh", args: ["-c", buildStructuredForgejoRunner()], env };
+  return { command: "sh", args: ["-c", structuredForgejoRunner], env };
 }
 
 const GITHUB_RECIPE_DESCRIPTION =

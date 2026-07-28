@@ -121,7 +121,14 @@ for (const line of fs.readFileSync(process.argv[2], "utf8").split(/\r?\n/)) {
     if (value !== null && typeof value === "object" && !Array.isArray(value)) resolved = value;
   } catch {}
 }
-if (!resolved || resolved.available !== true) {
+if (
+  !resolved ||
+  resolved.available !== true ||
+  typeof resolved.agentId !== "string" ||
+  resolved.agentId.trim().length === 0 ||
+  typeof resolved.credentialName !== "string" ||
+  resolved.credentialName.trim().length === 0
+) {
   console.error("axrun resolve output contained no usable resolve response");
   process.exit(1);
 }
