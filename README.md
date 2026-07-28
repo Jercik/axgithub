@@ -164,19 +164,25 @@ decoded semantic limits remain authoritative. Axrecipe v9—not the untrusted
 generator shell—owns the O_NOFOLLOW bounded read, strict schema validation, run
 binding, and exact-byte result submission.
 
-The checked-in structured runner resolves a profile (when configured) and asks
-`@j4k/axrun@5` to export the selected credential into an exclusive `0600`
-handoff file before the clean boundary. It opens the file, unlinks it, then
-`exec`s the generator under `env -i`. Its explicit child environment contains a
-fresh temporary `HOME`, a per-review `NPM_CONFIG_PREFIX`, inherited `PATH`, the
-two axrecipe paths, prompt/model routing, `AXRUN_BIN`, `AXRUN_ALLOW`, the
-handoff descriptor number, basic locale/process state, and nonsecret `CI`,
-`GITHUB_ACTIONS`, and `GITHUB_WORKSPACE` metadata. It contains neither
-`AXCREDS`/`AXCREDROUTER`, a vault credential name, nor `REVIEW_PROVIDER`.
-Axrun validates, reads, and closes the unlinked descriptor before it spawns the
-selected model. In this v5 direct-handoff flow the provider comes from the
-agent-bound credential descriptor; `REVIEW_PROVIDER` is solely a legacy
-direct-mode input and must not be reintroduced here.
+The checked-in structured runner first resolves a profile (when configured)
+and prepares the selected agent and prompt under `env -i`. That preparation
+environment contains a fresh temporary `HOME`/`TMPDIR`, a per-review
+`NPM_CONFIG_PREFIX`, inherited `PATH`, the two axrecipe paths, prompt text, and
+model routing. It contains neither `AXCREDS`/`AXCREDROUTER`, a vault credential
+name, nor `REVIEW_PROVIDER`, and every helper process exits before a credential
+handoff exists.
+
+Only then does the wrapper ask `@j4k/axrun@5` to export the selected credential
+into an exclusive `0600` file and `exec` a clean Node launcher. The launcher
+opens and unlinks that file, maps it to fd 4 only in axrun, closes its own copy
+immediately, and remains a credential-free parent. The final environment
+contains the scratch `HOME`, prepared `PATH` and optional `AXEXEC_*_PATH`, the
+two axrecipe paths, basic locale/process state, and nonsecret `CI`,
+`GITHUB_ACTIONS`, and `GITHUB_WORKSPACE` metadata. Axrun validates, reads, and
+closes fd 4 before it spawns the selected model. In this v5 direct-handoff flow
+the provider comes from the agent-bound credential descriptor;
+`REVIEW_PROVIDER` is solely a legacy direct-mode input and must not be
+reintroduced here.
 
 The runner invokes the pre-fetched `axinstall` under a separate clean
 environment and temporary npm prefix before it creates the credential handoff.

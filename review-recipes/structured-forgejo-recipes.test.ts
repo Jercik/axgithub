@@ -104,12 +104,14 @@ test("versioned structured runner is valid shell", () => {
   assert.equal(result.status, 0, result.stderr);
 });
 
-test("structured runner hands its descriptor directly to axrun", () => {
+test("structured runner prepares helpers before handing its descriptor to axrun", () => {
   const recipe = structuredForgejoRecipes[0];
   assert.ok(recipe);
   const command = buildStructuredForgejoSettings(recipe, recipe.promptResource).args[1];
-  assert.match(command, /exec "\$AXRUN_BIN" --agent "\$REVIEW_AGENT"/u);
-  assert.match(command, /--credential-handoff-fd "\$AXRUN_CREDENTIAL_HANDOFF_FD"/u);
+  assert.match(command, /const child = spawn\(executable, args/u);
+  assert.match(command, /stdio: \["inherit", "inherit", "inherit", "ignore", descriptor\]/u);
+  assert.match(command, /--credential-handoff-fd 4/u);
+  assert.match(command, /"TMPDIR=\$review_tmp"/u);
   assert.match(command, /run_axinstall\(\) \{ :; \}/u);
   assert.doesNotMatch(command, /package=@j4k\/axinstall/u);
   assert.doesNotMatch(command, /@j4k\/axrun@2\.12\.0/u);
@@ -118,9 +120,11 @@ test("structured runner hands its descriptor directly to axrun", () => {
     command.indexOf('"$trusted_axinstall" "$REVIEW_AGENT"') <
       command.lastIndexOf('"$trusted_axrun" credential export'),
   );
-  const invocation = command.match(/exec "\$AXRUN_BIN"[\s\S]*?--prompt "\$\(cat \/tmp\/prompt\.md\)"/u);
-  assert.ok(invocation);
-  assert.doesNotMatch(invocation[0], /provider/u);
+  assert.ok(
+    command.indexOf("WRITE_STRUCTURED_REVIEW_STATE") <
+      command.lastIndexOf('"$trusted_axrun" credential export'),
+  );
+  assert.doesNotMatch(command, /review_bin_dir=\/tmp|node \/tmp|cat \/tmp/u);
 });
 
 test("composed reviewer child environment is a positive allowlist", () => {

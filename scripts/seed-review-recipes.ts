@@ -332,18 +332,15 @@ $effort_args \\
 --prompt "$(cat /tmp/prompt.md)"`;
   // Axrun v5 binds the provider to the exported agent credential descriptor.
   // Structured recipes must not forward the legacy REVIEW_PROVIDER variable.
-  const handoffInvocation = `case "$AXRUN_CREDENTIAL_HANDOFF_FD" in
-  *[!0-9]* | "")
-    echo "AXRUN_CREDENTIAL_HANDOFF_FD must be a numeric file descriptor" >&2
-    exit 1
-    ;;
-esac
-exec "$AXRUN_BIN" --agent "$REVIEW_AGENT" \\
-$model_args \\
-$effort_args \\
---credential-handoff-fd "$AXRUN_CREDENTIAL_HANDOFF_FD" \\
---allow "$AXRUN_ALLOW" \\
---prompt "$(cat /tmp/prompt.md)"`;
+  const preparationInvocation = `node - "$AXRUN_PREPARED_STATE" "$TMPDIR/prompt.md" <<'WRITE_STRUCTURED_REVIEW_STATE'
+const fs = require("node:fs");
+const [output, promptPath] = process.argv.slice(2);
+const state = { PATH: process.env.PATH, PROMPT: fs.readFileSync(promptPath, "utf8") };
+for (const name of ["AXEXEC_CLAUDE_PATH", "AXEXEC_CODEX_PATH", "AXEXEC_CURSOR_PATH", "AXEXEC_OPENCODE_PATH"]) {
+  if (process.env[name]) state[name] = process.env[name];
+}
+fs.writeFileSync(output, JSON.stringify(state), { encoding: "utf8", flag: "wx", mode: 0o600 });
+WRITE_STRUCTURED_REVIEW_STATE`;
   const withoutLegacyTools = replaceExactlyOnce(
     replaceExactlyOnce(runner, legacyAxrun, ""),
     legacyAxinstall,
@@ -358,11 +355,12 @@ $effort_args \\
     legacyProvider,
     "# Provider routing is bound into the axrun v5 credential handoff.",
   );
-  const structuredGenericRunner = replaceExactlyOnce(
+  const preparedGenericRunner = replaceExactlyOnce(
     withoutLegacyRouting,
     legacyInvocation,
-    handoffInvocation,
+    preparationInvocation,
   );
+  const structuredGenericRunner = preparedGenericRunner.replace(/\/tmp\//gu, () => "$TMPDIR/");
   const marker = "__AXGITHUB_GENERIC_REVIEW_RUNNER__";
   if (structuredRunnerTemplate.split(marker).length !== 2) {
     throw new Error(`structured-forgejo-runner.sh must contain exactly one ${marker} marker`);
