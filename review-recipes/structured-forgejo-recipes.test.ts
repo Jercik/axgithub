@@ -27,7 +27,6 @@ const DIRECT_OUTER_KEYS = [
   "REVIEW_AGENT",
   "REVIEW_DISPLAY_NAME",
   "REVIEW_MODEL",
-  "REVIEW_PROVIDER",
   "REVIEW_VAULT_CREDENTIAL",
 ];
 const EXPECTED_PROMPT_RESOURCES = [
@@ -105,6 +104,15 @@ test("versioned structured runner is valid shell", () => {
   assert.equal(result.status, 0, result.stderr);
 });
 
+test("structured runner hands its descriptor directly to axrun", () => {
+  const recipe = structuredForgejoRecipes[0];
+  assert.ok(recipe);
+  const command = buildStructuredForgejoSettings(recipe, recipe.promptResource).args[1];
+  assert.match(command, /exec "\$AXRUN_BIN" --agent "\$REVIEW_AGENT"/u);
+  assert.match(command, /--credential-handoff-fd "\$AXRUN_CREDENTIAL_HANDOFF_FD"/u);
+  assert.doesNotMatch(command, /--provider "\$REVIEW_PROVIDER"/u);
+});
+
 test("composed reviewer child environment is a positive allowlist", () => {
   const directory = mkdtempSync(join(tmpdir(), "axgithub-structured-env-"));
   try {
@@ -161,6 +169,7 @@ fs.writeFileSync(process.env.REVIEW_OUTPUT_PATH, JSON.stringify({ schemaVersion:
     const canary = "ambient-authority-canary";
     const allowedKeys = new Set([
       "AXRUN_ALLOW",
+      "AXRUN_BIN",
       "AXRUN_CREDENTIAL_HANDOFF_FD",
       "AXRUN_RESOLVED_PROFILE",
       "AXEXEC_OPENCODE_PATH",

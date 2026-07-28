@@ -190,10 +190,11 @@ validates each path and position, and posts exactly once.
 After every managed Forgejo workflow has moved to the structured slots, finish
 the hard cutover in one change: delete
 `seedLegacyForgejoDirectPostRecipes` and its isolated resources/recipe arrays,
-remove the old Forgejo recipe IDs from the cluster-managed execute-key scope,
-and reseed. Historical recipes with recorded runs may remain in the database,
-but no seeder or key will authorize them. Do not add a compatibility flag or
-fall back to the old IDs.
+move every retired Forgejo recipe ID into `staleRecipeIds`, remove those IDs
+from the cluster-managed execute-key scope, and reseed. Historical recipes with
+recorded runs may remain in the database, but the seeder must report them until
+an operator can prune them, and no key may authorize them. Do not add a
+compatibility flag or fall back to the old IDs.
 
 ## Gotchas
 

@@ -245,7 +245,6 @@ const structuredForgejoRecipes: Array<Recipe & { promptResource: string }> = [
       REVIEW_MODEL: "GLM-5.2",
       REVIEW_DISPLAY_NAME: "Approach Review 3 (OpenCode Wafer)",
       REVIEW_VAULT_CREDENTIAL: "ci-opencode-wafer-credentials",
-      REVIEW_PROVIDER: "wafer.ai",
     },
     promptResource: STRUCTURED_FORGEJO_APPROACH_PROMPT_RESOURCE,
   },
@@ -294,7 +293,7 @@ function buildStructuredForgejoRunner(): string {
     if (source.split(expected).length !== 2) {
       throw new Error(`structured review runner expected exactly one ${JSON.stringify(expected)}`);
     }
-    return source.replace(expected, replacement);
+    return source.replace(expected, () => replacement);
   };
   const profileResolve =
     'if [ -n "${REVIEW_PROFILE:-}" ]; then\n' +
@@ -312,7 +311,7 @@ $effort_args \\
     exit 1
     ;;
 esac
-run_axrun --agent "$REVIEW_AGENT" \\
+exec "$AXRUN_BIN" --agent "$REVIEW_AGENT" \\
 $model_args \\
 $effort_args \\
 --credential-handoff-fd "$AXRUN_CREDENTIAL_HANDOFF_FD" \\

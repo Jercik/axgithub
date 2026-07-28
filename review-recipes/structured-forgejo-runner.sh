@@ -45,6 +45,10 @@ else
   exit 1
 fi
 
+trusted_dir="$(umask 077; "$mktemp_bin" -d "${TMPDIR:-/tmp}/axgithub-structured-trusted.XXXXXX")"
+resolve_output="$trusted_dir/resolve.json"
+resolve_parser="$trusted_dir/parse-resolve.cjs"
+
 trusted_axrun="$(command -v axrun || true)"
 if [ -z "$trusted_axrun" ]; then
   echo "axrun is not on PATH: the workflow must pre-fetch @j4k/axrun@5.0.0" >&2
@@ -55,8 +59,8 @@ fi
 # boundary. The handoff file is opened and unlinked before the reviewer starts;
 # only its inherited descriptor crosses into the credential-free process.
 if [ -n "${REVIEW_PROFILE:-}" ]; then
-  "$trusted_axrun" resolve --profile "$REVIEW_PROFILE" --json > /tmp/axrun-resolve.json
-  cat > /tmp/parse-structured-resolve.cjs <<'PARSE_STRUCTURED_RESOLVE'
+  "$trusted_axrun" resolve --profile "$REVIEW_PROFILE" --json > "$resolve_output"
+  cat > "$resolve_parser" <<'PARSE_STRUCTURED_RESOLVE'
 const fs = require("fs");
 let resolved;
 for (const line of fs.readFileSync(process.argv[2], "utf8").split(/\r?\n/)) {
@@ -80,10 +84,12 @@ for (const [name, value] of Object.entries({
   REVIEW_REASONING_EFFORT: resolved.reasoningEffort || "",
 })) process.stdout.write(name + "=" + quote(value) + "\n");
 PARSE_STRUCTURED_RESOLVE
-  resolve_exports="$(node /tmp/parse-structured-resolve.cjs /tmp/axrun-resolve.json)"
+  resolve_exports="$(node "$resolve_parser" "$resolve_output")"
   eval "$resolve_exports"
   export REVIEW_AGENT REVIEW_MODEL REVIEW_VAULT_CREDENTIAL REVIEW_DISPLAY_NAME REVIEW_REASONING_EFFORT
 fi
+/bin/rm -f "$resolve_output" "$resolve_parser"
+/bin/rmdir "$trusted_dir"
 
 : "${REVIEW_AGENT:?REVIEW_AGENT is required}"
 : "${REVIEW_VAULT_CREDENTIAL:?REVIEW_VAULT_CREDENTIAL is required}"
@@ -116,6 +122,11 @@ exec 4<"$handoff_path"
 # the reviewer returns. Validation and posting happen outside this generator.
 inner_runner="$("$mktemp_bin" "${TMPDIR:-/tmp}/axgithub-structured-runner.XXXXXX")"
 review_home="$(umask 077; "$mktemp_bin" -d "${TMPDIR:-/tmp}/axgithub-review-home.XXXXXX")"
+trusted_npm_prefix="$(npm prefix -g)"
+case "$trusted_npm_prefix" in
+  /*) ;;
+  *) echo "npm prefix -g must return an absolute path" >&2; exit 1 ;;
+esac
 /bin/cat > "$inner_runner" <<'AXGITHUB_GENERIC_REVIEW_RUNNER'
 # Remove this trusted temporary script before the untrusted reviewer starts.
 /bin/rm -f "$0"
@@ -126,10 +137,12 @@ AXGITHUB_GENERIC_REVIEW_RUNNER
 set -- /usr/bin/env -i \
   "HOME=$review_home" \
   "PATH=$PATH" \
+  "NPM_CONFIG_PREFIX=$trusted_npm_prefix" \
   "REVIEW_CONTEXT_PATH=$REVIEW_CONTEXT_PATH" \
   "REVIEW_OUTPUT_PATH=$REVIEW_OUTPUT_PATH" \
   "PROMPT_TEXT=$PROMPT_TEXT" \
   "AXRUN_ALLOW=$AXRUN_ALLOW" \
+  "AXRUN_BIN=$trusted_axrun" \
   "AXRUN_RESOLVED_PROFILE=${REVIEW_PROFILE:+1}" \
   "AXRUN_CREDENTIAL_HANDOFF_FD=4"
 
