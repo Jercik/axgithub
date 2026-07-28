@@ -27,7 +27,17 @@ Focus on actionable defects. Do not suggest stylistic changes, speculative
 performance work, or tests merely for coverage. Verify runtime claims before
 stating them as facts.
 
-When finished, write exactly one JSON document to `$REVIEW_OUTPUT_PATH`:
+When finished, write exactly one JSON document to `$REVIEW_OUTPUT_PATH`. Use a
+shell command: the review lane deliberately does not grant a file-editing tool.
+For example, write the complete document with a quoted heredoc:
+
+```sh
+cat > "$REVIEW_OUTPUT_PATH" <<'REVIEWJSON'
+{"schemaVersion":1,"body":"**Summary:** No actionable issues found.","comments":[]}
+REVIEWJSON
+```
+
+The document must have this shape:
 
 ```json
 {

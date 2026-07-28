@@ -11,7 +11,7 @@ set -eu
 : "${REVIEW_OUTPUT_PATH:?REVIEW_OUTPUT_PATH is required}"
 : "${PROMPT_TEXT:?PROMPT_TEXT is required}"
 : "${AXRUN_ALLOW:?AXRUN_ALLOW is required}"
-: "${AXCREDS:?AXCREDS is required by the trusted axrun outer process}"
+: "${AXCREDS:?AXCREDS is required by the trusted credential-export phase}"
 
 case "$REVIEW_CONTEXT_PATH" in
   /*) ;;
@@ -36,11 +36,86 @@ case "$REVIEW_OUTPUT_PATH" in
     ;;
 esac
 
-# The generic runner remains the single source for agent resolution/install.
+if [ -x /usr/bin/mktemp ]; then
+  mktemp_bin=/usr/bin/mktemp
+elif [ -x /bin/mktemp ]; then
+  mktemp_bin=/bin/mktemp
+else
+  echo "mktemp is required" >&2
+  exit 1
+fi
+
+trusted_axrun="$(command -v axrun || true)"
+if [ -z "$trusted_axrun" ]; then
+  echo "axrun is not on PATH: the workflow must pre-fetch @j4k/axrun@5.0.0" >&2
+  exit 1
+fi
+
+# Resolve a profile and export its selected credential before the clean
+# boundary. The handoff file is opened and unlinked before the reviewer starts;
+# only its inherited descriptor crosses into the credential-free process.
+if [ -n "${REVIEW_PROFILE:-}" ]; then
+  "$trusted_axrun" resolve --profile "$REVIEW_PROFILE" --json > /tmp/axrun-resolve.json
+  cat > /tmp/parse-structured-resolve.cjs <<'PARSE_STRUCTURED_RESOLVE'
+const fs = require("fs");
+let resolved;
+for (const line of fs.readFileSync(process.argv[2], "utf8").split(/\r?\n/)) {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("{")) continue;
+  try {
+    const value = JSON.parse(trimmed);
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) resolved = value;
+  } catch {}
+}
+if (!resolved || resolved.available !== true) {
+  console.error("axrun resolve output contained no usable resolve response");
+  process.exit(1);
+}
+const quote = (value) => "'" + String(value).replace(/'/g, "'\\''") + "'";
+for (const [name, value] of Object.entries({
+  REVIEW_AGENT: resolved.agentId,
+  REVIEW_MODEL: resolved.model || "",
+  REVIEW_VAULT_CREDENTIAL: resolved.credentialName,
+  REVIEW_DISPLAY_NAME: resolved.displayName || resolved.agentId,
+  REVIEW_REASONING_EFFORT: resolved.reasoningEffort || "",
+})) process.stdout.write(name + "=" + quote(value) + "\n");
+PARSE_STRUCTURED_RESOLVE
+  resolve_exports="$(node /tmp/parse-structured-resolve.cjs /tmp/axrun-resolve.json)"
+  eval "$resolve_exports"
+  export REVIEW_AGENT REVIEW_MODEL REVIEW_VAULT_CREDENTIAL REVIEW_DISPLAY_NAME REVIEW_REASONING_EFFORT
+fi
+
+: "${REVIEW_AGENT:?REVIEW_AGENT is required}"
+: "${REVIEW_VAULT_CREDENTIAL:?REVIEW_VAULT_CREDENTIAL is required}"
+
+handoff_dir="$(umask 077; "$mktemp_bin" -d "${TMPDIR:-/tmp}/axgithub-credential-handoff.XXXXXX")"
+handoff_path="$handoff_dir/credential.json"
+inner_runner=""
+review_home=""
+cleanup() {
+  /bin/rm -f "$handoff_path" "${inner_runner:-}"
+  /bin/rmdir "$handoff_dir" "${review_home:-}" 2>/dev/null || true
+}
+trap cleanup EXIT HUP INT TERM
+umask 077
+"$trusted_axrun" credential export \
+  --agent "$REVIEW_AGENT" \
+  --vault-credential "$REVIEW_VAULT_CREDENTIAL" \
+  --output "$handoff_path"
+if [ ! -f "$handoff_path" ] || [ -L "$handoff_path" ]; then
+  echo "axrun credential export did not create a regular handoff file" >&2
+  exit 1
+fi
+exec 4<"$handoff_path"
+/bin/rm -f "$handoff_path"
+/bin/rmdir "$handoff_dir"
+
+# The generic runner remains the single source for agent install and execution.
 # The seeder replaces this marker with its checked-in contents. Materialize it
 # before untrusted execution; there is deliberately no trusted command after
 # the reviewer returns. Validation and posting happen outside this generator.
-inner_runner="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/axgithub-structured-runner.XXXXXX")"
+inner_runner="$("$mktemp_bin" "${TMPDIR:-/tmp}/axgithub-structured-runner.XXXXXX")"
+review_home="$(umask 077; "$mktemp_bin" -d "${TMPDIR:-/tmp}/axgithub-review-home.XXXXXX")"
 /bin/cat > "$inner_runner" <<'AXGITHUB_GENERIC_REVIEW_RUNNER'
 # Remove this trusted temporary script before the untrusted reviewer starts.
 /bin/rm -f "$0"
@@ -49,35 +124,31 @@ AXGITHUB_GENERIC_REVIEW_RUNNER
 /bin/chmod 500 "$inner_runner"
 
 set -- /usr/bin/env -i \
-  "HOME=$HOME" \
+  "HOME=$review_home" \
   "PATH=$PATH" \
   "REVIEW_CONTEXT_PATH=$REVIEW_CONTEXT_PATH" \
   "REVIEW_OUTPUT_PATH=$REVIEW_OUTPUT_PATH" \
   "PROMPT_TEXT=$PROMPT_TEXT" \
   "AXRUN_ALLOW=$AXRUN_ALLOW" \
-  "AXCREDS=$AXCREDS"
+  "AXRUN_RESOLVED_PROFILE=${REVIEW_PROFILE:+1}" \
+  "AXRUN_CREDENTIAL_HANDOFF_FD=4"
 
-# Trusted outer-process routing. Axexec consumes and removes AX service fields
-# before the reviewer child, then provisions only the selected model's auth.
-if [ -n "${AXCREDROUTER:-}" ]; then set -- "$@" "AXCREDROUTER=$AXCREDROUTER"; fi
-if [ -n "${REVIEW_PROFILE:-}" ]; then set -- "$@" "REVIEW_PROFILE=$REVIEW_PROFILE"; fi
+# Profile routing and credential export ran before the clean boundary. Axexec
+# receives the selected agent and an unlinked credential descriptor only.
 if [ -n "${REVIEW_AGENT:-}" ]; then set -- "$@" "REVIEW_AGENT=$REVIEW_AGENT"; fi
-if [ -n "${REVIEW_MODEL:-}" ]; then set -- "$@" "REVIEW_MODEL=$REVIEW_MODEL"; fi
+if [ -n "${REVIEW_PROFILE:-}" ]; then set -- "$@" "REVIEW_PROFILE=$REVIEW_PROFILE"; fi
+set -- "$@" "REVIEW_MODEL=${REVIEW_MODEL:-}"
 if [ -n "${REVIEW_DISPLAY_NAME:-}" ]; then
   set -- "$@" "REVIEW_DISPLAY_NAME=$REVIEW_DISPLAY_NAME"
 fi
-if [ -n "${REVIEW_VAULT_CREDENTIAL:-}" ]; then
-  set -- "$@" "REVIEW_VAULT_CREDENTIAL=$REVIEW_VAULT_CREDENTIAL"
-fi
-if [ -n "${REVIEW_PROVIDER:-}" ]; then set -- "$@" "REVIEW_PROVIDER=$REVIEW_PROVIDER"; fi
 if [ -n "${REVIEW_REASONING_EFFORT:-}" ]; then
   set -- "$@" "REVIEW_REASONING_EFFORT=$REVIEW_REASONING_EFFORT"
 fi
 
-# Minimal nonsecret process metadata. In particular, no Actions command-file,
-# OIDC/runtime, forge API, Git, npm, SSH, cloud, Docker, or Kubernetes channel
-# crosses this boundary. The consuming checkout must also use
-# persist-credentials: false because environment isolation cannot clean .git.
+# Minimal nonsecret process metadata. The workflow must separately ensure that
+# the generator is not co-resident with secrets under the same OS identity:
+# environment filtering cannot hide ancestor `/proc` state or credential files.
+# It must use `persist-credentials: false` and a scratch credential-free home.
 if [ -n "${TMPDIR:-}" ]; then set -- "$@" "TMPDIR=$TMPDIR"; fi
 if [ -n "${LANG:-}" ]; then set -- "$@" "LANG=$LANG"; fi
 if [ -n "${LC_ALL:-}" ]; then set -- "$@" "LC_ALL=$LC_ALL"; fi
@@ -88,4 +159,6 @@ if [ -n "${GITHUB_WORKSPACE:-}" ]; then
   set -- "$@" "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
 fi
 
+# Replacing this trusted shell is load-bearing: it removes the rendered vault
+# service configuration from the model's process ancestry before it starts.
 exec "$@" /bin/sh "$inner_runner"

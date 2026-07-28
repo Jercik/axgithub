@@ -4,8 +4,8 @@
  *
  * Recipes and their prompt resources otherwise live only in the server
  * database (edited via axconsole). This script makes both sets reproducible
- * from version control: the canonical runner/validator sources in
- * review-recipes/ and the prompts in review-prompts/ are the source of truth.
+ * from version control: the canonical runner sources in review-recipes/ and
+ * the prompts in review-prompts/ are the source of truth.
  *
  * Legacy recipes keep their direct-post prompts for the GitHub and Forgejo
  * workflows that still use them. The new Forgejo structured recipes are
@@ -17,7 +17,7 @@
  *     node scripts/seed-review-recipes.ts
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -290,11 +290,48 @@ function buildSettings(recipe: Recipe, promptResource: string, withPerplexity: b
 }
 
 function buildStructuredForgejoRunner(): string {
+  const replaceExactlyOnce = (source: string, expected: string, replacement: string): string => {
+    if (source.split(expected).length !== 2) {
+      throw new Error(`structured review runner expected exactly one ${JSON.stringify(expected)}`);
+    }
+    return source.replace(expected, replacement);
+  };
+  const profileResolve =
+    'if [ -n "${REVIEW_PROFILE:-}" ]; then\n' +
+    "  # Exit 1 = all lanes exhausted (the intended red check); set -e fails the job here.";
+  const legacyInvocation = `run_axrun --agent "$REVIEW_AGENT" \\
+$provider_args \\
+$model_args \\
+$effort_args \\
+--vault-credential "$REVIEW_VAULT_CREDENTIAL" \\
+--allow "$AXRUN_ALLOW" \\
+--prompt "$(cat /tmp/prompt.md)"`;
+  const handoffInvocation = `case "$AXRUN_CREDENTIAL_HANDOFF_FD" in
+  *[!0-9]* | "")
+    echo "AXRUN_CREDENTIAL_HANDOFF_FD must be a numeric file descriptor" >&2
+    exit 1
+    ;;
+esac
+run_axrun --agent "$REVIEW_AGENT" \\
+$model_args \\
+$effort_args \\
+--credential-handoff-fd "$AXRUN_CREDENTIAL_HANDOFF_FD" \\
+--allow "$AXRUN_ALLOW" \\
+--prompt "$(cat /tmp/prompt.md)"`;
+  const structuredGenericRunner = replaceExactlyOnce(
+    replaceExactlyOnce(
+      runner,
+      profileResolve,
+      "if false; then\n  # Profile resolution completed before the clean boundary.",
+    ),
+    legacyInvocation,
+    handoffInvocation,
+  );
   const marker = "__AXGITHUB_GENERIC_REVIEW_RUNNER__";
   if (structuredRunnerTemplate.split(marker).length !== 2) {
     throw new Error(`structured-forgejo-runner.sh must contain exactly one ${marker} marker`);
   }
-  return structuredRunnerTemplate.replace(marker, () => runner);
+  return structuredRunnerTemplate.replace(marker, () => structuredGenericRunner);
 }
 
 function buildStructuredForgejoSettings(
@@ -479,7 +516,12 @@ async function main(): Promise<void> {
   console.log("Done.");
 }
 
-if (import.meta.main) {
+function isMainModule(): boolean {
+  const entry = process.argv[1];
+  return entry !== undefined && realpathSync(entry) === fileURLToPath(import.meta.url);
+}
+
+if (isMainModule()) {
   await main();
 }
 

@@ -29,7 +29,17 @@ complex than necessary, or the chosen design creates an obvious maintenance or
 scaling problem. Do not report implementation bugs, style, naming, formatting,
 minor optimizations, or subjective refactoring preferences.
 
-When finished, write exactly one JSON document to `$REVIEW_OUTPUT_PATH`:
+When finished, write exactly one JSON document to `$REVIEW_OUTPUT_PATH`. Use a
+shell command: the review lane deliberately does not grant a file-editing tool.
+For example, write the complete document with a quoted heredoc:
+
+```sh
+cat > "$REVIEW_OUTPUT_PATH" <<'REVIEWJSON'
+{"schemaVersion":1,"body":"**Approach review:** The approach looks good.","comments":[]}
+REVIEWJSON
+```
+
+The document must have this shape:
 
 ```json
 {

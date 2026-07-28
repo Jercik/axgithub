@@ -110,8 +110,6 @@ test("composed reviewer child environment is a positive allowlist", () => {
   try {
     const bin = join(directory, "bin");
     const contextPath = join(directory, "context.json");
-    const outputPath = join(directory, "output.json");
-    const childEnvironmentPath = `${outputPath}.child-environment.json`;
     const axrunPath = join(bin, "axrun");
     const axinstallPath = join(bin, "axinstall");
     mkdirSync(bin);
@@ -123,6 +121,22 @@ if (process.argv[2] === "resolve") {
   console.log(JSON.stringify({ available: true, agentId: "test-agent", credentialName: "test-credential", displayName: "Test" }));
   process.exit(0);
 }
+if (process.argv[2] === "credential" && process.argv[3] === "export") {
+  const outputIndex = process.argv.indexOf("--output");
+  if (outputIndex === -1 || !process.argv[outputIndex + 1]) process.exit(2);
+  fs.writeFileSync(process.argv[outputIndex + 1], JSON.stringify({ schemaVersion: 1 }), { mode: 0o600 });
+  process.exit(0);
+}
+const handoffIndex = process.argv.indexOf("--credential-handoff-fd");
+if (handoffIndex === -1 || !process.argv[handoffIndex + 1]) {
+  console.error("structured runner must invoke axrun with a credential handoff descriptor");
+  process.exit(2);
+}
+if (process.env.AXCREDS || process.env.AXCREDROUTER || process.env.REVIEW_PROVIDER) {
+  console.error("credential authority crossed the structured runner boundary");
+  process.exit(2);
+}
+fs.fstatSync(Number(process.argv[handoffIndex + 1]));
 // Model axexec's real base-environment scrub after the checked-in runner's
 // positive allowlist. Provider auth is deliberately outside this ambient-env test.
 const servicePrefixes = ["AXCREDS", "AXCREDROUTER", "AXSESSION", "AXSANDBOX", "AXVAULT", "AXRECIPE"];
@@ -144,48 +158,12 @@ fs.writeFileSync(process.env.REVIEW_OUTPUT_PATH, JSON.stringify({ schemaVersion:
     chmodSync(axinstallPath, 0o700);
     writeFileSync(contextPath, "{}\n", { mode: 0o600 });
 
-    const recipe = structuredForgejoRecipes[0];
-    assert.ok(recipe);
-    const settings = buildStructuredForgejoSettings(recipe, recipe.promptResource);
     const canary = "ambient-authority-canary";
-    const result = runShell(settings.args[1], {
-      ...process.env,
-      ...settings.env,
-      PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
-      REVIEW_CONTEXT_PATH: contextPath,
-      REVIEW_OUTPUT_PATH: outputPath,
-      CI: "true",
-      GITHUB_ACTIONS: "true",
-      GITHUB_WORKSPACE: repoRoot,
-      GITHUB_ENV: canary,
-      GITHUB_PATH: canary,
-      GITHUB_OUTPUT: canary,
-      GITHUB_STATE: canary,
-      GITHUB_STEP_SUMMARY: canary,
-      FORGEJO_TOKEN: canary,
-      GITEA_TOKEN: canary,
-      GITHUB_TOKEN: canary,
-      ACTIONS_RUNTIME_TOKEN: canary,
-      ACTIONS_ID_TOKEN_REQUEST_TOKEN: canary,
-      NPM_TOKEN: canary,
-      npm_config__authToken: canary,
-      AXRECIPE_API_KEY: canary,
-      AX_OPENAI_CREDENTIALS: canary,
-      AWS_SECRET_ACCESS_KEY: canary,
-      GOOGLE_APPLICATION_CREDENTIALS: canary,
-      KUBECONFIG: canary,
-      DOCKER_CONFIG: canary,
-      FUTURE_FORGE_CREDENTIAL_CHANNEL: canary,
-    });
-    assert.equal(result.status, 0, result.stderr);
-
-    const child = JSON.parse(readFileSync(childEnvironmentPath, "utf8")) as Record<
-      string,
-      string
-    >;
-    assert.equal(Object.values(child).includes(canary), false);
     const allowedKeys = new Set([
       "AXRUN_ALLOW",
+      "AXRUN_CREDENTIAL_HANDOFF_FD",
+      "AXRUN_RESOLVED_PROFILE",
+      "AXEXEC_OPENCODE_PATH",
       "CI",
       "GITHUB_ACTIONS",
       "GITHUB_WORKSPACE",
@@ -202,7 +180,6 @@ fs.writeFileSync(process.env.REVIEW_OUTPUT_PATH, JSON.stringify({ schemaVersion:
       "REVIEW_OUTPUT_PATH",
       "REVIEW_PROFILE",
       "REVIEW_REASONING_EFFORT",
-      "REVIEW_VAULT_CREDENTIAL",
       "SHLVL",
       "TERM",
       "TMPDIR",
@@ -210,11 +187,50 @@ fs.writeFileSync(process.env.REVIEW_OUTPUT_PATH, JSON.stringify({ schemaVersion:
       // Injected by macOS when /bin/sh starts, even under env -i.
       "__CF_USER_TEXT_ENCODING",
     ]);
-    assert.deepEqual(
-      Object.keys(child).filter((key) => !allowedKeys.has(key)),
-      [],
-      JSON.stringify(child, null, 2),
-    );
+    for (const recipe of structuredForgejoRecipes) {
+      const outputPath = join(directory, `${recipe.recipeId}.json`);
+      const settings = buildStructuredForgejoSettings(recipe, recipe.promptResource);
+      const result = runShell(settings.args[1], {
+        ...process.env,
+        ...settings.env,
+        PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+        REVIEW_CONTEXT_PATH: contextPath,
+        REVIEW_OUTPUT_PATH: outputPath,
+        CI: "true",
+        GITHUB_ACTIONS: "true",
+        GITHUB_WORKSPACE: repoRoot,
+        GITHUB_ENV: canary,
+        GITHUB_PATH: canary,
+        GITHUB_OUTPUT: canary,
+        GITHUB_STATE: canary,
+        GITHUB_STEP_SUMMARY: canary,
+        FORGEJO_TOKEN: canary,
+        GITEA_TOKEN: canary,
+        GITHUB_TOKEN: canary,
+        ACTIONS_RUNTIME_TOKEN: canary,
+        ACTIONS_ID_TOKEN_REQUEST_TOKEN: canary,
+        NPM_TOKEN: canary,
+        npm_config__authToken: canary,
+        AXRECIPE_API_KEY: canary,
+        AX_OPENAI_CREDENTIALS: canary,
+        AWS_SECRET_ACCESS_KEY: canary,
+        GOOGLE_APPLICATION_CREDENTIALS: canary,
+        KUBECONFIG: canary,
+        DOCKER_CONFIG: canary,
+        FUTURE_FORGE_CREDENTIAL_CHANNEL: canary,
+      });
+      assert.equal(result.status, 0, `${recipe.recipeId}: ${result.stderr}`);
+
+      const child = JSON.parse(
+        readFileSync(`${outputPath}.child-environment.json`, "utf8"),
+      ) as Record<string, string>;
+      assert.equal(Object.values(child).includes(canary), false, recipe.recipeId);
+      assert.deepEqual(
+        Object.keys(child).filter((key) => !allowedKeys.has(key)),
+        [],
+        `${recipe.recipeId}: ${JSON.stringify(child, null, 2)}`,
+      );
+    }
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

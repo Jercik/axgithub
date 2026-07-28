@@ -164,16 +164,22 @@ decoded semantic limits remain authoritative. Axrecipe v9—not the untrusted
 generator shell—owns the O_NOFOLLOW bounded read, strict schema validation, run
 binding, and exact-byte result submission.
 
-The checked-in structured runner starts the generator under `env -i` and
-positively adds only its two paths, prompt/model routing, trusted outer AX
-routing, basic locale/process state, and the nonsecret `CI`, `GITHUB_ACTIONS`,
-and `GITHUB_WORKSPACE` metadata. Axexec consumes and removes the outer AX
-configuration, then provisions only the selected model's authentication.
-Perplexity, forge/API credentials, Actions command files, OIDC/runtime state,
-npm/Git/SSH credentials, and arbitrary future environment channels do not
-cross the runner boundary. The consuming checkout must also set
-`persist-credentials: false`; environment isolation cannot remove credentials
-stored in `.git/config`.
+The checked-in structured runner resolves a profile (when configured) and asks
+`@j4k/axrun@5` to export the selected credential into an exclusive `0600`
+handoff file before the clean boundary. It opens the file, unlinks it, then
+`exec`s the generator under `env -i` with only the inherited handoff descriptor,
+the two paths, prompt/model routing, basic locale/process state, and nonsecret
+`CI`, `GITHUB_ACTIONS`, and `GITHUB_WORKSPACE` metadata. The generator receives
+neither `AXCREDS`/`AXCREDROUTER` nor a vault credential name or provider; axrun
+validates and consumes the descriptor before it spawns the selected model.
+
+This is a process-environment boundary, not a same-UID sandbox. The consuming
+workflow must run the untrusted generator in an OS identity or container that
+cannot inspect secret-bearing ancestors through `/proc`, and it must not leave
+a trusted poster step in that identity. It must also use
+`persist-credentials: false` and a credential-free home: environment isolation
+cannot remove credentials stored in `.git/config`, `~/.npmrc`, SSH/Git/GitHub
+configuration, or another process's environment.
 
 Generation and posting run in separate jobs. The generator has no review-posting
 instruction or API authority, and no trusted poster step follows it in the same
