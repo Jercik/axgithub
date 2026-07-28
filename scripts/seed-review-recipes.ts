@@ -335,6 +335,18 @@ $effort_args \\
   const preparationInvocation = `node - "$AXRUN_PREPARED_STATE" "$TMPDIR/prompt.md" <<'WRITE_STRUCTURED_REVIEW_STATE'
 const fs = require("node:fs");
 const [output, promptPath] = process.argv.slice(2);
+const shellQuote = (value) => "'" + String(value).replace(/'/g, "'\\''") + "'";
+for (const [environmentName, marker, realName] of [
+  ["AXEXEC_CLAUDE_PATH", "__AXGITHUB_CLAUDE_REAL__", "claude-real"],
+  ["AXEXEC_CODEX_PATH", "__AXGITHUB_CODEX_REAL__", "codex-real"],
+]) {
+  const wrapper = process.env[environmentName];
+  if (!wrapper) continue;
+  const source = fs.readFileSync(wrapper, "utf8");
+  const target = shellQuote(String(process.env.TMPDIR) + "/axreview-bin/" + realName);
+  if (source.split(marker).length !== 2) throw new Error("expected exactly one " + marker);
+  fs.writeFileSync(wrapper, source.replace(marker, target), "utf8");
+}
 const state = { PATH: process.env.PATH, PROMPT: fs.readFileSync(promptPath, "utf8") };
 for (const name of ["AXEXEC_CLAUDE_PATH", "AXEXEC_CODEX_PATH", "AXEXEC_CURSOR_PATH", "AXEXEC_OPENCODE_PATH"]) {
   if (process.env[name]) state[name] = process.env[name];
@@ -360,10 +372,32 @@ WRITE_STRUCTURED_REVIEW_STATE`;
     legacyInvocation,
     preparationInvocation,
   );
-  const structuredGenericRunner = preparedGenericRunner.replace(/\/tmp\//gu, () => "$TMPDIR/");
+  const withWrapperMarkers = replaceExactlyOnce(
+    replaceExactlyOnce(
+      preparedGenericRunner,
+      "exec /tmp/axreview-bin/claude-real",
+      "exec __AXGITHUB_CLAUDE_REAL__",
+    ),
+    "exec /tmp/axreview-bin/codex-real",
+    "exec __AXGITHUB_CODEX_REAL__",
+  );
+  const tempScopedRunner = withWrapperMarkers.replace(/\/tmp\//gu, () => "$TMPDIR/");
+  const structuredGenericRunner = replaceExactlyOnce(
+    replaceExactlyOnce(
+      tempScopedRunner,
+      '> $TMPDIR/prompt.md',
+      '> "$TMPDIR/prompt.md"',
+    ),
+    "node $TMPDIR/substitute-prompt.cjs $TMPDIR/prompt.md",
+    'node "$TMPDIR/substitute-prompt.cjs" "$TMPDIR/prompt.md"',
+  );
   const marker = "__AXGITHUB_GENERIC_REVIEW_RUNNER__";
   if (structuredRunnerTemplate.split(marker).length !== 2) {
     throw new Error(`structured-forgejo-runner.sh must contain exactly one ${marker} marker`);
+  }
+  const delimiter = "AXGITHUB_GENERIC_REVIEW_RUNNER";
+  if (new RegExp(`^${delimiter}$`, "mu").test(structuredGenericRunner)) {
+    throw new Error(`structured generic runner must not contain the ${delimiter} delimiter`);
   }
   return structuredRunnerTemplate.replace(marker, () => structuredGenericRunner);
 }

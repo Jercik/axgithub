@@ -110,6 +110,8 @@ test("structured runner prepares helpers before handing its descriptor to axrun"
   const command = buildStructuredForgejoSettings(recipe, recipe.promptResource).args[1];
   assert.match(command, /const child = spawn\(executable, args/u);
   assert.match(command, /stdio: \["inherit", "inherit", "inherit", "ignore", descriptor\]/u);
+  assert.match(command, /process\.on\(signal/u);
+  assert.match(command, /unlinkSync\(handoffPath\)/u);
   assert.match(command, /--credential-handoff-fd 4/u);
   assert.match(command, /"TMPDIR=\$review_tmp"/u);
   assert.match(command, /run_axinstall\(\) \{ :; \}/u);
@@ -125,6 +127,8 @@ test("structured runner prepares helpers before handing its descriptor to axrun"
       command.lastIndexOf('"$trusted_axrun" credential export'),
   );
   assert.doesNotMatch(command, /review_bin_dir=\/tmp|node \/tmp|cat \/tmp/u);
+  assert.doesNotMatch(command, /exec \$TMPDIR\/axreview-bin\/(?:claude|codex)-real/u);
+  assert.doesNotMatch(command, /> \$TMPDIR\/prompt\.md/u);
 });
 
 test("composed reviewer child environment is a positive allowlist", () => {

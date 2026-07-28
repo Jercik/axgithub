@@ -61,7 +61,10 @@ cleanup() {
   if [ -n "$handoff_dir" ]; then /bin/rmdir "$handoff_dir" 2>/dev/null || true; fi
   if [ -n "$review_home" ]; then /bin/rm -rf "$review_home"; fi
 }
-trap cleanup EXIT HUP INT TERM
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 resolve_output="$trusted_dir/resolve.json"
 resolve_parser="$trusted_dir/parse-resolve.cjs"
 
@@ -132,7 +135,7 @@ for (const [name, value] of Object.entries({
   REVIEW_REASONING_EFFORT: resolved.reasoningEffort || "",
 })) process.stdout.write(name + "=" + quote(value) + "\n");
 PARSE_STRUCTURED_RESOLVE
-  resolve_exports="$(node "$resolve_parser" "$resolve_output")"
+  resolve_exports="$("$trusted_node" "$resolve_parser" "$resolve_output")"
   eval "$resolve_exports"
   export REVIEW_AGENT REVIEW_MODEL REVIEW_VAULT_CREDENTIAL REVIEW_DISPLAY_NAME REVIEW_REASONING_EFFORT
 fi
@@ -231,16 +234,29 @@ try {
   });
   closeSync(descriptor);
   descriptor = undefined;
+  const forwardedSignals = ["SIGHUP", "SIGINT", "SIGTERM"];
+  for (const signal of forwardedSignals) {
+    process.on(signal, () => {
+      if (!child.killed) child.kill(signal);
+    });
+  }
   child.once("error", (error) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   });
   child.once("exit", (code, signal) => {
-    if (signal) process.kill(process.pid, signal);
-    else process.exitCode = code ?? 1;
+    if (signal) {
+      process.exitCode = 1;
+      for (const forwarded of forwardedSignals) process.removeAllListeners(forwarded);
+      process.kill(process.pid, signal);
+    } else process.exitCode = code ?? 1;
   });
 } catch (error) {
   if (descriptor !== undefined) closeSync(descriptor);
+  try { unlinkSync(handoffPath); } catch (unlinkError) {
+    if (unlinkError?.code !== "ENOENT") console.error(`failed to remove credential handoff: ${String(unlinkError)}`);
+  }
+  try { rmdirSync(handoffDir); } catch {}
   throw error;
 }
 STRUCTURED_REVIEW_LAUNCHER
