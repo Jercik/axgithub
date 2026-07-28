@@ -119,6 +119,8 @@ test("structured runner prepares helpers before handing its descriptor to axrun"
   assert.match(command, /typeof resolved\.agentId !== "string"/u);
   assert.match(command, /typeof resolved\.credentialName !== "string"/u);
   assert.match(command, /cat > "\$TMPDIR\/substitute-prompt\.cjs"/u);
+  assert.match(command, /not on PATH after structured axinstall/u);
+  assert.doesNotMatch(command, /trusted review-tools prefix/u);
   assert.match(command, /run_axinstall\(\) \{ :; \}/u);
   assert.doesNotMatch(command, /package=@j4k\/axinstall/u);
   assert.doesNotMatch(command, /@j4k\/axrun@2\.12\.0/u);
@@ -148,13 +150,14 @@ test("composed reviewer child environment is a positive allowlist", () => {
     const contextPath = join(directory, "context.json");
     const axrunPath = join(bin, "axrun");
     const axinstallPath = join(bin, "axinstall");
+    const claudePath = join(bin, "claude");
     mkdirSync(bin);
     writeFileSync(
       axrunPath,
       `#!/usr/bin/env node
 const fs = require("node:fs");
 if (process.argv[2] === "resolve") {
-  console.log(JSON.stringify({ available: true, agentId: "test-agent", credentialName: "test-credential", displayName: "Test" }));
+  console.log(JSON.stringify({ available: true, agentId: "claude", credentialName: "test-credential", displayName: "Test" }));
   process.exit(0);
 }
 if (process.argv[2] === "credential" && process.argv[3] === "export" && process.argv.includes("--help")) {
@@ -183,6 +186,10 @@ if (process.env.AXCREDS || process.env.AXCREDROUTER || process.env.REVIEW_PROVID
 const promptIndex = process.argv.indexOf("--prompt");
 if (promptIndex === -1 || /__REVIEW_(?:DISPLAY_NAME|MODEL)__/.test(process.argv[promptIndex + 1] || "")) {
   console.error("structured runner must resolve review attribution before model launch");
+  process.exit(2);
+}
+if ((process.argv[promptIndex + 1] || "").includes(" ()_")) {
+  console.error("structured runner must provide a review-signature model fallback");
   process.exit(2);
 }
 const handoffStat = fs.fstatSync(Number(process.argv[handoffIndex + 1]));
@@ -214,8 +221,10 @@ fs.writeFileSync(process.env.REVIEW_OUTPUT_PATH, JSON.stringify({ schemaVersion:
       { mode: 0o700 },
     );
     writeFileSync(axinstallPath, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    writeFileSync(claudePath, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
     chmodSync(axrunPath, 0o700);
     chmodSync(axinstallPath, 0o700);
+    chmodSync(claudePath, 0o700);
     writeFileSync(contextPath, "{}\n", { mode: 0o600 });
 
     const canary = "ambient-authority-canary";
@@ -223,6 +232,7 @@ fs.writeFileSync(process.env.REVIEW_OUTPUT_PATH, JSON.stringify({ schemaVersion:
       "AXRUN_ALLOW",
       "AXRUN_BIN",
       "AXRUN_CREDENTIAL_HANDOFF_FD",
+      "AXEXEC_CLAUDE_PATH",
       "AXEXEC_OPENCODE_PATH",
       "CI",
       "GITHUB_ACTIONS",
@@ -285,6 +295,14 @@ fs.writeFileSync(process.env.REVIEW_OUTPUT_PATH, JSON.stringify({ schemaVersion:
         [],
         `${recipe.recipeId}: ${JSON.stringify(child, null, 2)}`,
       );
+      if (recipe.env.REVIEW_PROFILE !== undefined) {
+        assert.equal(typeof child.AXEXEC_CLAUDE_PATH, "string", recipe.recipeId);
+        assert.doesNotMatch(
+          readFileSync(child.AXEXEC_CLAUDE_PATH, "utf8"),
+          /__AXGITHUB_CLAUDE_REAL__/u,
+          recipe.recipeId,
+        );
+      }
       if (recipe.recipeId === "forgejo-review-approach-3") {
         const arguments_ = JSON.parse(
           readFileSync(`${outputPath}.axrun-argv.json`, "utf8"),

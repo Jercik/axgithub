@@ -179,6 +179,7 @@ fi
 # TMPDIR and replaces its final axrun call with a state writer.
 inner_runner="$review_home/prepare-runner.sh"
 prepared_state="$review_home/prepared-state.json"
+review_signature_model="${REVIEW_MODEL:-$REVIEW_AGENT}"
 /bin/cat > "$inner_runner" <<'AXGITHUB_GENERIC_REVIEW_RUNNER'
 __AXGITHUB_GENERIC_REVIEW_RUNNER__
 AXGITHUB_GENERIC_REVIEW_RUNNER
@@ -193,7 +194,7 @@ AXGITHUB_GENERIC_REVIEW_RUNNER
   "PROMPT_TEXT=$PROMPT_TEXT" \
   "AXRUN_PREPARED_STATE=$prepared_state" \
   "REVIEW_AGENT=$REVIEW_AGENT" \
-  "REVIEW_MODEL=${REVIEW_MODEL:-}" \
+  "REVIEW_MODEL=$review_signature_model" \
   "REVIEW_DISPLAY_NAME=${REVIEW_DISPLAY_NAME:-}" \
   "REVIEW_PROFILE=${REVIEW_PROFILE:-}" \
   "REVIEW_REASONING_EFFORT=${REVIEW_REASONING_EFFORT:-}" \

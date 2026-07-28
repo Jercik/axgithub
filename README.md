@@ -72,8 +72,10 @@ jobs:
 ## Review runner
 
 [`review-recipes/review-runner.sh`](review-recipes/review-runner.sh) is the
-shell script each review recipe executes on the runner. It has two modes,
-selected by whether `REVIEW_PROFILE` is set in the recipe env.
+shell script each legacy direct-post recipe executes on the runner. The
+structured Forgejo slots embed a transformed copy under the isolated wrapper
+described below. The generic runner has two modes, selected by whether
+`REVIEW_PROFILE` is set in the recipe env.
 
 **Profile mode (resolve → install → run).** When `REVIEW_PROFILE` names an
 [axcredrouter](https://credrouter.axkit.dev) profile (e.g. `smart-pr-review`),

@@ -298,6 +298,14 @@ function buildStructuredForgejoRunner(): string {
   const profileResolve =
     'if [ -n "${REVIEW_PROFILE:-}" ]; then\n' +
     "  # Exit 1 = all lanes exhausted (the intended red check); set -e fails the job here.";
+  const legacyRequirePrefetched = `require_prefetched() {
+  echo "$1 not on PATH: the workflow must pre-fetch $2 into the trusted review-tools prefix (no registry auth exists after the credential strip)" >&2
+  exit 1
+}`;
+  const structuredRequirePrefetched = `require_prefetched() {
+  echo "$1 not on PATH after structured axinstall: selected agent installation did not populate $NPM_CONFIG_PREFIX/bin" >&2
+  exit 1
+}`;
   const legacyAxrun = `run_axrun() {
   if command -v axrun >/dev/null 2>&1; then
     axrun "$@"
@@ -354,7 +362,11 @@ for (const name of ["AXEXEC_CLAUDE_PATH", "AXEXEC_CODEX_PATH", "AXEXEC_CURSOR_PA
 fs.writeFileSync(output, JSON.stringify(state), { encoding: "utf8", flag: "wx", mode: 0o600 });
 WRITE_STRUCTURED_REVIEW_STATE`;
   const withoutLegacyTools = replaceExactlyOnce(
-    replaceExactlyOnce(runner, legacyAxrun, ""),
+    replaceExactlyOnce(
+      replaceExactlyOnce(runner, legacyRequirePrefetched, structuredRequirePrefetched),
+      legacyAxrun,
+      "",
+    ),
     legacyAxinstall,
     structuredAxinstall,
   );
