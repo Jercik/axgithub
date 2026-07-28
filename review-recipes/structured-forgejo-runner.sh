@@ -5,7 +5,6 @@ set -eu
 # Start its child under an empty environment and add back only the values the
 # reviewer needs. Unknown current or future workflow variables therefore fail
 # closed instead of becoming ambient authority.
-: "${HOME:?HOME is required}"
 : "${PATH:?PATH is required}"
 : "${REVIEW_CONTEXT_PATH:?REVIEW_CONTEXT_PATH is required}"
 : "${REVIEW_OUTPUT_PATH:?REVIEW_OUTPUT_PATH is required}"

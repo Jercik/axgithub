@@ -345,7 +345,7 @@ for (const [environmentName, marker, realName] of [
   const source = fs.readFileSync(wrapper, "utf8");
   const target = shellQuote(String(process.env.TMPDIR) + "/axreview-bin/" + realName);
   if (source.split(marker).length !== 2) throw new Error("expected exactly one " + marker);
-  fs.writeFileSync(wrapper, source.replace(marker, target), "utf8");
+  fs.writeFileSync(wrapper, source.replace(marker, () => target), "utf8");
 }
 const state = { PATH: process.env.PATH, PROMPT: fs.readFileSync(promptPath, "utf8") };
 for (const name of ["AXEXEC_CLAUDE_PATH", "AXEXEC_CODEX_PATH", "AXEXEC_CURSOR_PATH", "AXEXEC_OPENCODE_PATH"]) {

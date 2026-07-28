@@ -35,7 +35,7 @@ For example, write the complete document with a quoted heredoc:
 
 ```sh
 cat > "$REVIEW_OUTPUT_PATH" <<'REVIEWJSON'
-{"schemaVersion":1,"body":"**Approach review:** The approach looks good.","comments":[]}
+{"schemaVersion":1,"body":"**Approach review:** The approach looks good.\n\n_Approach review by __REVIEW_DISPLAY_NAME__ (__REVIEW_MODEL__)_","comments":[]}
 REVIEWJSON
 ```
 
@@ -44,10 +44,13 @@ The document must have this shape:
 ```json
 {
   "schemaVersion": 1,
-  "body": "**Approach review:** The approach looks good.",
+  "body": "**Approach review:** The approach looks good.\n\n_Approach review by __REVIEW_DISPLAY_NAME__ (__REVIEW_MODEL__)_",
   "comments": []
 }
 ```
+
+The body must end with a blank line followed by
+`_Approach review by __REVIEW_DISPLAY_NAME__ (__REVIEW_MODEL__)_`.
 
 The document has exactly the `schemaVersion`, `body`, and `comments` keys.
 `schemaVersion` is the number `1`; `body` is a concise, non-empty assessment of

@@ -33,7 +33,7 @@ For example, write the complete document with a quoted heredoc:
 
 ```sh
 cat > "$REVIEW_OUTPUT_PATH" <<'REVIEWJSON'
-{"schemaVersion":1,"body":"**Summary:** No actionable issues found.","comments":[]}
+{"schemaVersion":1,"body":"**Summary:** No actionable issues found.\n\n_Code review by __REVIEW_DISPLAY_NAME__ (__REVIEW_MODEL__)_","comments":[]}
 REVIEWJSON
 ```
 
@@ -42,7 +42,7 @@ The document must have this shape:
 ```json
 {
   "schemaVersion": 1,
-  "body": "**Summary:** Found 1 medium issue.",
+  "body": "**Summary:** Found 1 medium issue.\n\n_Code review by __REVIEW_DISPLAY_NAME__ (__REVIEW_MODEL__)_",
   "comments": [
     {
       "path": "src/example.ts",
@@ -52,6 +52,19 @@ The document must have this shape:
   ]
 }
 ```
+
+Use these severity levels consistently in every actionable comment:
+
+| Level | Emoji | Use for |
+| --- | --- | --- |
+| Critical | 🔴 | Security vulnerabilities, data loss, normal-operation crashes, or auth bypass |
+| High | 🟠 | Completely broken behavior, edge-case crashes, or silent data corruption |
+| Medium | 🟡 | Degraded behavior, non-crashing error handling, or missing validation |
+| Low | 🟢 | Minor improvements or optimizations with a clear benefit |
+| Info | ℹ️ | Pure observations requiring no action |
+
+The body must end with a blank line followed by
+`_Code review by __REVIEW_DISPLAY_NAME__ (__REVIEW_MODEL__)_`.
 
 The document has exactly the `schemaVersion`, `body`, and `comments` keys.
 `schemaVersion` is the number `1`; `body` is a concise, non-empty summary of at

@@ -112,11 +112,14 @@ recipe for each enabled review slot:
 - `forgejo-review-code-smart-1`
 - `forgejo-review-code-smart-2`
 
-These replace the existing Forgejo direct-post recipes at the OIDC cutover.
-During rollout the seeder keeps that legacy set in the explicitly isolated
-`seedLegacyForgejoDirectPostRecipes` path so current workflows continue to run;
-there is no runtime fallback between the two sets. The structured slots are the
-OIDC migration contract shared with `axrecipe`, `j4k/cluster`, and `j4k/align`.
+These replace the existing six-recipe Forgejo direct-post roster at the OIDC
+cutover; the new roster deliberately has five slots and is not a one-for-one
+rename. The fable and Gemini slots are retired, while each smart lane gets two
+independent draws. During rollout the seeder keeps the legacy roster in the
+explicitly isolated `seedLegacyForgejoDirectPostRecipes` path so current
+workflows continue to run; there is no runtime fallback between the two sets.
+The structured slots are the OIDC migration contract shared with `axrecipe`,
+`j4k/cluster`, and `j4k/align`.
 The five slots share two versioned resources:
 
 - `forgejo-review-approach-v1-prompt`
@@ -168,9 +171,12 @@ The checked-in structured runner first resolves a profile (when configured)
 and prepares the selected agent and prompt under `env -i`. That preparation
 environment contains a fresh temporary `HOME`/`TMPDIR`, a per-review
 `NPM_CONFIG_PREFIX`, inherited `PATH`, the two axrecipe paths, prompt text, and
-model routing. It contains neither `AXCREDS`/`AXCREDROUTER`, a vault credential
-name, nor `REVIEW_PROVIDER`, and every helper process exits before a credential
-handoff exists.
+model routing. This credential-free preparation also substitutes the resolved
+display name and model into the required review-body signature, so the exact
+three-key result schema retains lane attribution without exposing routing
+variables in the final model environment. It contains neither
+`AXCREDS`/`AXCREDROUTER`, a vault credential name, nor `REVIEW_PROVIDER`, and
+every helper process exits before a credential handoff exists.
 
 Only then does the wrapper ask `@j4k/axrun@5` to export the selected credential
 into an exclusive `0600` file and `exec` a clean Node launcher. The launcher

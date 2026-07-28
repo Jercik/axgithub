@@ -93,6 +93,8 @@ test("both prompts encode the exact context and result v1 contracts", () => {
     assert.match(prompt, /8,192 UTF-8 bytes/u);
     assert.match(prompt, /65,536 UTF-8 bytes/u);
     assert.match(prompt, /1,048,576 UTF-8 bytes/u);
+    assert.match(prompt, /__REVIEW_DISPLAY_NAME__/u);
+    assert.match(prompt, /__REVIEW_MODEL__/u);
   }
   assert.match(readFileSync(join(repoRoot, "README.md"), "utf8"), /each have a separate 4 MiB transport cap/u);
 });
@@ -133,6 +135,7 @@ test("structured runner prepares helpers before handing its descriptor to axrun"
   const preparationBlock = command.split("WRITE_STRUCTURED_REVIEW_STATE")[1];
   assert.ok(preparationBlock);
   assert.match(preparationBlock, new RegExp(shellQuoteSource.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
+  assert.match(preparationBlock, /source\.replace\(marker, \(\) => target\)/u);
 });
 
 test("composed reviewer child environment is a positive allowlist", () => {
@@ -174,6 +177,11 @@ if (process.env.AXCREDS || process.env.AXCREDROUTER || process.env.REVIEW_PROVID
   console.error("credential authority crossed the structured runner boundary");
   process.exit(2);
 }
+const promptIndex = process.argv.indexOf("--prompt");
+if (promptIndex === -1 || /__REVIEW_(?:DISPLAY_NAME|MODEL)__/.test(process.argv[promptIndex + 1] || "")) {
+  console.error("structured runner must resolve review attribution before model launch");
+  process.exit(2);
+}
 const handoffStat = fs.fstatSync(Number(process.argv[handoffIndex + 1]));
 const handoffFd = Number(process.argv[handoffIndex + 1]);
 fs.closeSync(handoffFd);
@@ -197,6 +205,7 @@ for (const [key, value] of Object.entries(process.env)) {
   if (!npmLaunchState && !axCredential && !axService) child[key] = value;
 }
 fs.writeFileSync(process.env.REVIEW_OUTPUT_PATH + ".child-environment.json", JSON.stringify(child));
+fs.writeFileSync(process.env.REVIEW_OUTPUT_PATH + ".axrun-argv.json", JSON.stringify(process.argv.slice(2)));
 fs.writeFileSync(process.env.REVIEW_OUTPUT_PATH, JSON.stringify({ schemaVersion: 1, body: "No issues found.", comments: [] }));
 `,
       { mode: 0o700 },
@@ -239,9 +248,10 @@ fs.writeFileSync(process.env.REVIEW_OUTPUT_PATH, JSON.stringify({ schemaVersion:
       const outputPath = join(directory, `${recipe.recipeId}.json`);
       const settings = buildStructuredForgejoSettings(recipe, recipe.promptResource);
       const result = runShell(settings.args[1], {
-        ...process.env,
         ...settings.env,
         PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+        HOME: directory,
+        TMPDIR: directory,
         REVIEW_CONTEXT_PATH: contextPath,
         REVIEW_OUTPUT_PATH: outputPath,
         CI: "true",
@@ -278,6 +288,13 @@ fs.writeFileSync(process.env.REVIEW_OUTPUT_PATH, JSON.stringify({ schemaVersion:
         [],
         `${recipe.recipeId}: ${JSON.stringify(child, null, 2)}`,
       );
+      if (recipe.recipeId === "forgejo-review-approach-3") {
+        const arguments_ = JSON.parse(
+          readFileSync(`${outputPath}.axrun-argv.json`, "utf8"),
+        ) as string[];
+        assert.equal(arguments_[arguments_.indexOf("--agent") + 1], "opencode");
+        assert.equal(arguments_[arguments_.indexOf("--model") + 1], "GLM-5.2");
+      }
     }
   } finally {
     rmSync(directory, { recursive: true, force: true });
