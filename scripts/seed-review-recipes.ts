@@ -298,6 +298,16 @@ function buildStructuredForgejoRunner(): string {
   const profileResolve =
     'if [ -n "${REVIEW_PROFILE:-}" ]; then\n' +
     "  # Exit 1 = all lanes exhausted (the intended red check); set -e fails the job here.";
+  const legacyAxrun = `run_axrun() {
+  if command -v axrun >/dev/null 2>&1; then
+    axrun "$@"
+    return
+  fi
+  if [ -n "\${GITHUB_ACTIONS:-}" ]; then
+    require_prefetched axrun @j4k/axrun@2.12.0
+  fi
+  npm exec --yes --package=@j4k/axrun@2.12.0 -- axrun "$@"
+}`;
   const legacyAxinstall = `run_axinstall() {
   if command -v axinstall >/dev/null 2>&1; then
     axinstall "$@"
@@ -309,6 +319,10 @@ function buildStructuredForgejoRunner(): string {
   npm exec --yes --package=@j4k/axinstall@3.0.7 -- axinstall "$@"
 }`;
   const structuredAxinstall = `run_axinstall() { :; }`;
+  const legacyProvider = `provider_args=""
+if [ -n "\${REVIEW_PROVIDER:-}" ]; then
+  provider_args="--provider $REVIEW_PROVIDER"
+fi`;
   const legacyInvocation = `run_axrun --agent "$REVIEW_AGENT" \\
 $provider_args \\
 $model_args \\
@@ -330,12 +344,22 @@ $effort_args \\
 --credential-handoff-fd "$AXRUN_CREDENTIAL_HANDOFF_FD" \\
 --allow "$AXRUN_ALLOW" \\
 --prompt "$(cat /tmp/prompt.md)"`;
-  const structuredGenericRunner = replaceExactlyOnce(
+  const withoutLegacyTools = replaceExactlyOnce(
+    replaceExactlyOnce(runner, legacyAxrun, ""),
+    legacyAxinstall,
+    structuredAxinstall,
+  );
+  const withoutLegacyRouting = replaceExactlyOnce(
     replaceExactlyOnce(
-      replaceExactlyOnce(runner, legacyAxinstall, structuredAxinstall),
+      withoutLegacyTools,
       profileResolve,
       "if false; then\n  # Profile resolution completed before the clean boundary.",
     ),
+    legacyProvider,
+    "# Provider routing is bound into the axrun v5 credential handoff.",
+  );
+  const structuredGenericRunner = replaceExactlyOnce(
+    withoutLegacyRouting,
     legacyInvocation,
     handoffInvocation,
   );

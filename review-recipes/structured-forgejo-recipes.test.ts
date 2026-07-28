@@ -112,6 +112,8 @@ test("structured runner hands its descriptor directly to axrun", () => {
   assert.match(command, /--credential-handoff-fd "\$AXRUN_CREDENTIAL_HANDOFF_FD"/u);
   assert.match(command, /run_axinstall\(\) \{ :; \}/u);
   assert.doesNotMatch(command, /package=@j4k\/axinstall/u);
+  assert.doesNotMatch(command, /@j4k\/axrun@2\.12\.0/u);
+  assert.doesNotMatch(command, /provider_args/u);
   assert.ok(
     command.indexOf('"$trusted_axinstall" "$REVIEW_AGENT"') <
       command.lastIndexOf('"$trusted_axrun" credential export'),
@@ -138,7 +140,7 @@ if (process.argv[2] === "resolve") {
   process.exit(0);
 }
 if (process.argv[2] === "credential" && process.argv[3] === "export" && process.argv.includes("--help")) {
-  console.log("Usage: axrun credential export [options]");
+  console.log("--output <path>");
   process.exit(0);
 }
 if (process.argv.includes("--help")) {

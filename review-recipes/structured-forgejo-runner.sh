@@ -76,7 +76,7 @@ credential_export_help="$("$trusted_axrun" credential export --help 2>&1)" || {
   exit 1
 }
 case "$credential_export_help" in
-  *"Usage: axrun credential export"*) ;;
+  *"--output"*) ;;
   *)
     echo "axrun must support credential export: pre-fetch @j4k/axrun@5" >&2
     exit 1
