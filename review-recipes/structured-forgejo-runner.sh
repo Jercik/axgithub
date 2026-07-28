@@ -46,6 +46,18 @@ else
 fi
 
 trusted_dir="$(umask 077; "$mktemp_bin" -d "${TMPDIR:-/tmp}/axgithub-structured-trusted.XXXXXX")"
+handoff_dir=""
+handoff_path=""
+inner_runner=""
+review_home=""
+cleanup() {
+  if [ -n "$trusted_dir" ]; then /bin/rm -rf "$trusted_dir"; fi
+  if [ -n "$handoff_path" ]; then /bin/rm -f "$handoff_path"; fi
+  if [ -n "$inner_runner" ]; then /bin/rm -f "$inner_runner"; fi
+  if [ -n "$handoff_dir" ]; then /bin/rmdir "$handoff_dir" 2>/dev/null || true; fi
+  if [ -n "$review_home" ]; then /bin/rmdir "$review_home" 2>/dev/null || true; fi
+}
+trap cleanup EXIT HUP INT TERM
 resolve_output="$trusted_dir/resolve.json"
 resolve_parser="$trusted_dir/parse-resolve.cjs"
 
@@ -54,6 +66,33 @@ if [ -z "$trusted_axrun" ]; then
   echo "axrun is not on PATH: the workflow must pre-fetch @j4k/axrun@5.0.0" >&2
   exit 1
 fi
+trusted_axinstall="$(command -v axinstall || true)"
+if [ -z "$trusted_axinstall" ]; then
+  echo "axinstall is not on PATH: the workflow must pre-fetch @j4k/axinstall" >&2
+  exit 1
+fi
+credential_export_help="$("$trusted_axrun" credential export --help 2>&1)" || {
+  echo "axrun must support credential export: pre-fetch @j4k/axrun@5" >&2
+  exit 1
+}
+case "$credential_export_help" in
+  *"Usage: axrun credential export"*) ;;
+  *)
+    echo "axrun must support credential export: pre-fetch @j4k/axrun@5" >&2
+    exit 1
+    ;;
+esac
+axrun_help="$("$trusted_axrun" --help 2>&1)" || {
+  echo "axrun must support --credential-handoff-fd: pre-fetch @j4k/axrun@5" >&2
+  exit 1
+}
+case "$axrun_help" in
+  *"--credential-handoff-fd"*) ;;
+  *)
+    echo "axrun must support --credential-handoff-fd: pre-fetch @j4k/axrun@5" >&2
+    exit 1
+    ;;
+esac
 
 # Resolve a profile and export its selected credential before the clean
 # boundary. The handoff file is opened and unlinked before the reviewer starts;
@@ -90,19 +129,33 @@ PARSE_STRUCTURED_RESOLVE
 fi
 /bin/rm -f "$resolve_output" "$resolve_parser"
 /bin/rmdir "$trusted_dir"
+trusted_dir=""
 
 : "${REVIEW_AGENT:?REVIEW_AGENT is required}"
 : "${REVIEW_VAULT_CREDENTIAL:?REVIEW_VAULT_CREDENTIAL is required}"
 
+# Install the selected agent before creating the credential handoff. The
+# installer gets a scratch home/prefix and no credential authority or open
+# handoff descriptor, so package lifecycle processes cannot inherit either.
+review_home="$(umask 077; "$mktemp_bin" -d "${TMPDIR:-/tmp}/axgithub-review-home.XXXXXX")"
+review_npm_prefix="$review_home/npm-global"
+/bin/mkdir -m 700 "$review_npm_prefix"
+if [ "$REVIEW_AGENT" = "cursor" ]; then
+  /usr/bin/env -i \
+    "HOME=$review_home" \
+    "PATH=$PATH" \
+    "NPM_CONFIG_PREFIX=$review_npm_prefix" \
+    "$trusted_axinstall" "$REVIEW_AGENT"
+else
+  /usr/bin/env -i \
+    "HOME=$review_home" \
+    "PATH=$PATH" \
+    "NPM_CONFIG_PREFIX=$review_npm_prefix" \
+    "$trusted_axinstall" "$REVIEW_AGENT" --with npm
+fi
+
 handoff_dir="$(umask 077; "$mktemp_bin" -d "${TMPDIR:-/tmp}/axgithub-credential-handoff.XXXXXX")"
 handoff_path="$handoff_dir/credential.json"
-inner_runner=""
-review_home=""
-cleanup() {
-  /bin/rm -f "$handoff_path" "${inner_runner:-}"
-  /bin/rmdir "$handoff_dir" "${review_home:-}" 2>/dev/null || true
-}
-trap cleanup EXIT HUP INT TERM
 umask 077
 "$trusted_axrun" credential export \
   --agent "$REVIEW_AGENT" \
@@ -124,12 +177,6 @@ inner_runner="$("$mktemp_bin" "${TMPDIR:-/tmp}/axgithub-structured-runner.XXXXXX
 # The final clean phase execs axrun to discard the handoff-bearing shell, so it
 # cannot remove this home after the model exits. Hosted runners discard it with
 # the job; persistent runners must prune this namespaced temporary directory.
-review_home="$(umask 077; "$mktemp_bin" -d "${TMPDIR:-/tmp}/axgithub-review-home.XXXXXX")"
-trusted_npm_prefix="$(npm prefix -g)"
-case "$trusted_npm_prefix" in
-  /*) ;;
-  *) echo "npm prefix -g must return an absolute path" >&2; exit 1 ;;
-esac
 /bin/cat > "$inner_runner" <<'AXGITHUB_GENERIC_REVIEW_RUNNER'
 # Remove this trusted temporary script before the untrusted reviewer starts.
 /bin/rm -f "$0"
@@ -140,13 +187,12 @@ AXGITHUB_GENERIC_REVIEW_RUNNER
 set -- /usr/bin/env -i \
   "HOME=$review_home" \
   "PATH=$PATH" \
-  "NPM_CONFIG_PREFIX=$trusted_npm_prefix" \
+  "NPM_CONFIG_PREFIX=$review_npm_prefix" \
   "REVIEW_CONTEXT_PATH=$REVIEW_CONTEXT_PATH" \
   "REVIEW_OUTPUT_PATH=$REVIEW_OUTPUT_PATH" \
   "PROMPT_TEXT=$PROMPT_TEXT" \
   "AXRUN_ALLOW=$AXRUN_ALLOW" \
   "AXRUN_BIN=$trusted_axrun" \
-  "AXRUN_RESOLVED_PROFILE=${REVIEW_PROFILE:+1}" \
   "AXRUN_CREDENTIAL_HANDOFF_FD=4"
 
 # Profile routing and credential export ran before the clean boundary. Axexec

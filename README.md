@@ -167,11 +167,25 @@ binding, and exact-byte result submission.
 The checked-in structured runner resolves a profile (when configured) and asks
 `@j4k/axrun@5` to export the selected credential into an exclusive `0600`
 handoff file before the clean boundary. It opens the file, unlinks it, then
-`exec`s the generator under `env -i` with only the inherited handoff descriptor,
-the two paths, prompt/model routing, basic locale/process state, and nonsecret
-`CI`, `GITHUB_ACTIONS`, and `GITHUB_WORKSPACE` metadata. The generator receives
-neither `AXCREDS`/`AXCREDROUTER` nor a vault credential name or provider; axrun
-validates and consumes the descriptor before it spawns the selected model.
+`exec`s the generator under `env -i`. Its explicit child environment contains a
+fresh temporary `HOME`, a per-review `NPM_CONFIG_PREFIX`, inherited `PATH`, the
+two axrecipe paths, prompt/model routing, `AXRUN_BIN`, `AXRUN_ALLOW`, the
+handoff descriptor number, basic locale/process state, and nonsecret `CI`,
+`GITHUB_ACTIONS`, and `GITHUB_WORKSPACE` metadata. It contains neither
+`AXCREDS`/`AXCREDROUTER`, a vault credential name, nor `REVIEW_PROVIDER`.
+Axrun validates, reads, and closes the unlinked descriptor before it spawns the
+selected model. In this v5 direct-handoff flow the provider comes from the
+agent-bound credential descriptor; `REVIEW_PROVIDER` is solely a legacy
+direct-mode input and must not be reintroduced here.
+
+The runner invokes the pre-fetched `axinstall` under a separate clean
+environment and temporary npm prefix before it creates the credential handoff.
+The composed generator therefore has no install fallback, and package lifecycle
+processes cannot inherit the credential descriptor. The inherited `PATH` is an
+execution-only dependency: the workflow must make every shared directory on it
+read-only to the untrusted generator identity (or expose it via a read-only
+mount). A writable tool prefix would be ambient write authority, not an
+acceptable prefetch cache.
 
 This is a process-environment boundary, not a same-UID sandbox. The consuming
 workflow must run the untrusted generator in an OS identity or container that

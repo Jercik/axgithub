@@ -110,7 +110,15 @@ test("structured runner hands its descriptor directly to axrun", () => {
   const command = buildStructuredForgejoSettings(recipe, recipe.promptResource).args[1];
   assert.match(command, /exec "\$AXRUN_BIN" --agent "\$REVIEW_AGENT"/u);
   assert.match(command, /--credential-handoff-fd "\$AXRUN_CREDENTIAL_HANDOFF_FD"/u);
-  assert.doesNotMatch(command, /--provider "\$REVIEW_PROVIDER"/u);
+  assert.match(command, /run_axinstall\(\) \{ :; \}/u);
+  assert.doesNotMatch(command, /package=@j4k\/axinstall/u);
+  assert.ok(
+    command.indexOf('"$trusted_axinstall" "$REVIEW_AGENT"') <
+      command.lastIndexOf('"$trusted_axrun" credential export'),
+  );
+  const invocation = command.match(/exec "\$AXRUN_BIN"[\s\S]*?--prompt "\$\(cat \/tmp\/prompt\.md\)"/u);
+  assert.ok(invocation);
+  assert.doesNotMatch(invocation[0], /provider/u);
 });
 
 test("composed reviewer child environment is a positive allowlist", () => {
@@ -129,6 +137,14 @@ if (process.argv[2] === "resolve") {
   console.log(JSON.stringify({ available: true, agentId: "test-agent", credentialName: "test-credential", displayName: "Test" }));
   process.exit(0);
 }
+if (process.argv[2] === "credential" && process.argv[3] === "export" && process.argv.includes("--help")) {
+  console.log("Usage: axrun credential export [options]");
+  process.exit(0);
+}
+if (process.argv.includes("--help")) {
+  console.log("--credential-handoff-fd <fd>");
+  process.exit(0);
+}
 if (process.argv[2] === "credential" && process.argv[3] === "export") {
   const outputIndex = process.argv.indexOf("--output");
   if (outputIndex === -1 || !process.argv[outputIndex + 1]) process.exit(2);
@@ -144,7 +160,17 @@ if (process.env.AXCREDS || process.env.AXCREDROUTER || process.env.REVIEW_PROVID
   console.error("credential authority crossed the structured runner boundary");
   process.exit(2);
 }
-fs.fstatSync(Number(process.argv[handoffIndex + 1]));
+const handoffStat = fs.fstatSync(Number(process.argv[handoffIndex + 1]));
+const handoffFd = Number(process.argv[handoffIndex + 1]);
+fs.closeSync(handoffFd);
+delete process.env.AXRUN_CREDENTIAL_HANDOFF_FD;
+delete process.env.AXRUN_BIN;
+delete process.env.AXRUN_ALLOW;
+const probe = require("node:child_process").spawnSync(process.execPath, ["-e", "const fs = require('node:fs'); try { const stat = fs.fstatSync(Number(process.argv[1])); process.exit(String(stat.dev) === process.argv[2] && String(stat.ino) === process.argv[3] ? 1 : 0); } catch { process.exit(0); }", String(handoffFd), String(handoffStat.dev), String(handoffStat.ino)], { env: process.env, stdio: ["ignore", "ignore", "ignore"] });
+if (probe.status !== 0) {
+  console.error("model child inherited the credential handoff descriptor");
+  process.exit(2);
+}
 // Model axexec's real base-environment scrub after the checked-in runner's
 // positive allowlist. Provider auth is deliberately outside this ambient-env test.
 const servicePrefixes = ["AXCREDS", "AXCREDROUTER", "AXSESSION", "AXSANDBOX", "AXVAULT", "AXRECIPE"];
@@ -171,7 +197,6 @@ fs.writeFileSync(process.env.REVIEW_OUTPUT_PATH, JSON.stringify({ schemaVersion:
       "AXRUN_ALLOW",
       "AXRUN_BIN",
       "AXRUN_CREDENTIAL_HANDOFF_FD",
-      "AXRUN_RESOLVED_PROFILE",
       "AXEXEC_OPENCODE_PATH",
       "CI",
       "GITHUB_ACTIONS",

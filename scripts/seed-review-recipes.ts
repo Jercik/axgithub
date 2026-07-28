@@ -298,6 +298,17 @@ function buildStructuredForgejoRunner(): string {
   const profileResolve =
     'if [ -n "${REVIEW_PROFILE:-}" ]; then\n' +
     "  # Exit 1 = all lanes exhausted (the intended red check); set -e fails the job here.";
+  const legacyAxinstall = `run_axinstall() {
+  if command -v axinstall >/dev/null 2>&1; then
+    axinstall "$@"
+    return
+  fi
+  if [ -n "\${GITHUB_ACTIONS:-}" ]; then
+    require_prefetched axinstall @j4k/axinstall@3.0.7
+  fi
+  npm exec --yes --package=@j4k/axinstall@3.0.7 -- axinstall "$@"
+}`;
+  const structuredAxinstall = `run_axinstall() { :; }`;
   const legacyInvocation = `run_axrun --agent "$REVIEW_AGENT" \\
 $provider_args \\
 $model_args \\
@@ -305,6 +316,8 @@ $effort_args \\
 --vault-credential "$REVIEW_VAULT_CREDENTIAL" \\
 --allow "$AXRUN_ALLOW" \\
 --prompt "$(cat /tmp/prompt.md)"`;
+  // Axrun v5 binds the provider to the exported agent credential descriptor.
+  // Structured recipes must not forward the legacy REVIEW_PROVIDER variable.
   const handoffInvocation = `case "$AXRUN_CREDENTIAL_HANDOFF_FD" in
   *[!0-9]* | "")
     echo "AXRUN_CREDENTIAL_HANDOFF_FD must be a numeric file descriptor" >&2
@@ -319,7 +332,7 @@ $effort_args \\
 --prompt "$(cat /tmp/prompt.md)"`;
   const structuredGenericRunner = replaceExactlyOnce(
     replaceExactlyOnce(
-      runner,
+      replaceExactlyOnce(runner, legacyAxinstall, structuredAxinstall),
       profileResolve,
       "if false; then\n  # Profile resolution completed before the clean boundary.",
     ),
