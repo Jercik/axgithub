@@ -117,11 +117,38 @@ During rollout the seeder keeps that legacy set in the explicitly isolated
 `seedLegacyForgejoDirectPostRecipes` path so current workflows continue to run;
 there is no runtime fallback between the two sets. The structured slots are the
 OIDC migration contract shared with `axrecipe`, `j4k/cluster`, and `j4k/align`.
-An agent receives only the nonsecret `REVIEW_CONTEXT_PATH` and
-`REVIEW_OUTPUT_PATH` Forgejo inputs. It must write one exact JSON document:
+The five slots share two versioned resources:
+
+- `forgejo-review-approach-v1-prompt`
+- `forgejo-review-code-v1-prompt`
+
+Axrecipe v9 supplies two nonsecret paths to the generator:
+`REVIEW_CONTEXT_PATH` and `REVIEW_OUTPUT_PATH`. The context is a bounded JSON
+document with this exact shape:
 
 ```json
 {
+  "schemaVersion": 1,
+  "slot": "forgejo-review-code-smart-1",
+  "pullRequest": {"title": "...", "body": "..."},
+  "changedFiles": ["src/file.ts"],
+  "diff": {"unified": "diff --git ...", "truncated": false}
+}
+```
+
+Title is limited to 512 characters; body to 64 KiB UTF-8; changed files to 500
+normalized repository-relative paths of at most 1,024 characters; and the
+unified diff to 1 MiB UTF-8. `diff.truncated` records whether the producer had
+to cut it. The context never contains a repository slug/ID, PR number, commit
+or ref, event/run identity, or forge/API coordinate. Repository identity may
+still be discoverable from the credential-free checkout itself; it is not an
+authorization secret.
+
+The generator must write one exact version 1 result document:
+
+```json
+{
+  "schemaVersion": 1,
   "body": "A concise non-empty summary",
   "comments": [
     {"path": "src/file.ts", "new_position": 12, "body": "A finding"}
@@ -129,18 +156,30 @@ An agent receives only the nonsecret `REVIEW_CONTEXT_PATH` and
 }
 ```
 
-Each comment has `path`, `body`, and exactly one positive position:
-`new_position` or `old_position`. The generated structured runner rejects
-unknown keys, unsafe paths, missing/oversized text, invalid positions, more
-than 50 comments, invalid JSON, and symlinked/oversized output. The trusted
-outer process may use the existing `AXCREDS`/`AXCREDROUTER` path to launch the
-selected model, but axexec scrubs that configuration before spawning the
-reviewer. Perplexity and ambient Forgejo, Actions OIDC/runtime, npm, GitHub, CI,
-and SSH credentials are absent from the child environment. The agent receives
-no Forgejo token, API base, repository/PR identity, commit SHA, or review-posting
-instruction. A trusted poster must bind the accepted handoff to the
-OIDC-authenticated repository/PR/head/slot, re-fetch the current diff, and
-validate each path and position before it posts the review.
+The body is at most 16,384 UTF-8 bytes. There are at most 50 comments; each has
+`path`, `body`, and exactly one positive `new_position` or `old_position`.
+Paths are at most 1,024 characters and comment bodies at most 8,192 UTF-8 bytes.
+Raw context and result JSON files each have a separate 4 MiB transport cap;
+decoded semantic limits remain authoritative. Axrecipe v9—not the untrusted
+generator shell—owns the O_NOFOLLOW bounded read, strict schema validation, run
+binding, and exact-byte result submission.
+
+The checked-in structured runner starts the generator under `env -i` and
+positively adds only its two paths, prompt/model routing, trusted outer AX
+routing, basic locale/process state, and the nonsecret `CI`, `GITHUB_ACTIONS`,
+and `GITHUB_WORKSPACE` metadata. Axexec consumes and removes the outer AX
+configuration, then provisions only the selected model's authentication.
+Perplexity, forge/API credentials, Actions command files, OIDC/runtime state,
+npm/Git/SSH credentials, and arbitrary future environment channels do not
+cross the runner boundary. The consuming checkout must also set
+`persist-credentials: false`; environment isolation cannot remove credentials
+stored in `.git/config`.
+
+Generation and posting run in separate jobs. The generator has no review-posting
+instruction or API authority, and no trusted poster step follows it in the same
+job. The poster independently binds the accepted result to the
+OIDC-authenticated repository/PR/head/slot, re-fetches the current diff,
+validates each path and position, and posts exactly once.
 
 After every managed Forgejo workflow has moved to the structured slots, finish
 the hard cutover in one change: delete

@@ -27,8 +27,8 @@ const apiKey = process.env.AXRECIPE_API_KEY;
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "..");
 const runner = readFileSync(join(repoRoot, "review-recipes", "review-runner.sh"), "utf8");
-const structuredOutputValidator = readFileSync(
-  join(repoRoot, "review-recipes", "validate-forgejo-review-output.js"),
+const structuredRunnerTemplate = readFileSync(
+  join(repoRoot, "review-recipes", "structured-forgejo-runner.sh"),
   "utf8",
 );
 
@@ -40,13 +40,8 @@ const GITHUB_CODE_PROMPT_RESOURCE = "pr-review-code-github-prompt";
 const GITHUB_APPROACH_PROMPT_RESOURCE = "pr-review-approach-github-prompt";
 const FORGEJO_CODE_PROMPT_RESOURCE = "pr-review-code-forgejo-prompt";
 const FORGEJO_APPROACH_PROMPT_RESOURCE = "pr-review-approach-forgejo-prompt";
-const STRUCTURED_FORGEJO_APPROACH_SMART_1_PROMPT_RESOURCE =
-  "forgejo-review-approach-smart-1-prompt";
-const STRUCTURED_FORGEJO_APPROACH_SMART_2_PROMPT_RESOURCE =
-  "forgejo-review-approach-smart-2-prompt";
-const STRUCTURED_FORGEJO_APPROACH_3_PROMPT_RESOURCE = "forgejo-review-approach-3-prompt";
-const STRUCTURED_FORGEJO_CODE_SMART_1_PROMPT_RESOURCE = "forgejo-review-code-smart-1-prompt";
-const STRUCTURED_FORGEJO_CODE_SMART_2_PROMPT_RESOURCE = "forgejo-review-code-smart-2-prompt";
+const STRUCTURED_FORGEJO_APPROACH_PROMPT_RESOURCE = "forgejo-review-approach-v1-prompt";
+const STRUCTURED_FORGEJO_CODE_PROMPT_RESOURCE = "forgejo-review-code-v1-prompt";
 
 interface Resource {
   resourceId: string;
@@ -70,33 +65,15 @@ const resources: Resource[] = [
     content: readPrompt("pr-review-approach-prompt.md"),
   },
   {
-    resourceId: STRUCTURED_FORGEJO_APPROACH_SMART_1_PROMPT_RESOURCE,
-    name: "Structured Forgejo approach review prompt (smart draw 1)",
-    description: "Credential-free structured handoff prompt for Forgejo approach smart draw 1.",
+    resourceId: STRUCTURED_FORGEJO_APPROACH_PROMPT_RESOURCE,
+    name: "Structured Forgejo approach review prompt v1",
+    description: "Version 1 credential-free structured handoff prompt for Forgejo approach slots.",
     content: readPrompt("forgejo-structured-approach-review-prompt.md"),
   },
   {
-    resourceId: STRUCTURED_FORGEJO_APPROACH_SMART_2_PROMPT_RESOURCE,
-    name: "Structured Forgejo approach review prompt (smart draw 2)",
-    description: "Credential-free structured handoff prompt for Forgejo approach smart draw 2.",
-    content: readPrompt("forgejo-structured-approach-review-prompt.md"),
-  },
-  {
-    resourceId: STRUCTURED_FORGEJO_APPROACH_3_PROMPT_RESOURCE,
-    name: "Structured Forgejo approach review prompt (approach 3)",
-    description: "Credential-free structured handoff prompt for Forgejo approach 3.",
-    content: readPrompt("forgejo-structured-approach-review-prompt.md"),
-  },
-  {
-    resourceId: STRUCTURED_FORGEJO_CODE_SMART_1_PROMPT_RESOURCE,
-    name: "Structured Forgejo code review prompt (smart draw 1)",
-    description: "Credential-free structured handoff prompt for Forgejo code smart draw 1.",
-    content: readPrompt("forgejo-structured-code-review-prompt.md"),
-  },
-  {
-    resourceId: STRUCTURED_FORGEJO_CODE_SMART_2_PROMPT_RESOURCE,
-    name: "Structured Forgejo code review prompt (smart draw 2)",
-    description: "Credential-free structured handoff prompt for Forgejo code smart draw 2.",
+    resourceId: STRUCTURED_FORGEJO_CODE_PROMPT_RESOURCE,
+    name: "Structured Forgejo code review prompt v1",
+    description: "Version 1 credential-free structured handoff prompt for Forgejo code slots.",
     content: readPrompt("forgejo-structured-code-review-prompt.md"),
   },
 ];
@@ -252,13 +229,13 @@ const structuredForgejoRecipes: Array<Recipe & { promptResource: string }> = [
     recipeId: "forgejo-review-approach-smart-1",
     name: "Structured Forgejo approach review (smart draw 1)",
     env: { ...SMART_ENV },
-    promptResource: STRUCTURED_FORGEJO_APPROACH_SMART_1_PROMPT_RESOURCE,
+    promptResource: STRUCTURED_FORGEJO_APPROACH_PROMPT_RESOURCE,
   },
   {
     recipeId: "forgejo-review-approach-smart-2",
     name: "Structured Forgejo approach review (smart draw 2)",
     env: { ...SMART_ENV },
-    promptResource: STRUCTURED_FORGEJO_APPROACH_SMART_2_PROMPT_RESOURCE,
+    promptResource: STRUCTURED_FORGEJO_APPROACH_PROMPT_RESOURCE,
   },
   {
     recipeId: "forgejo-review-approach-3",
@@ -270,19 +247,19 @@ const structuredForgejoRecipes: Array<Recipe & { promptResource: string }> = [
       REVIEW_VAULT_CREDENTIAL: "ci-opencode-wafer-credentials",
       REVIEW_PROVIDER: "wafer.ai",
     },
-    promptResource: STRUCTURED_FORGEJO_APPROACH_3_PROMPT_RESOURCE,
+    promptResource: STRUCTURED_FORGEJO_APPROACH_PROMPT_RESOURCE,
   },
   {
     recipeId: "forgejo-review-code-smart-1",
     name: "Structured Forgejo code review (smart draw 1)",
     env: { ...SMART_ENV },
-    promptResource: STRUCTURED_FORGEJO_CODE_SMART_1_PROMPT_RESOURCE,
+    promptResource: STRUCTURED_FORGEJO_CODE_PROMPT_RESOURCE,
   },
   {
     recipeId: "forgejo-review-code-smart-2",
     name: "Structured Forgejo code review (smart draw 2)",
     env: { ...SMART_ENV },
-    promptResource: STRUCTURED_FORGEJO_CODE_SMART_2_PROMPT_RESOURCE,
+    promptResource: STRUCTURED_FORGEJO_CODE_PROMPT_RESOURCE,
   },
 ];
 
@@ -313,56 +290,11 @@ function buildSettings(recipe: Recipe, promptResource: string, withPerplexity: b
 }
 
 function buildStructuredForgejoRunner(): string {
-  const ambientCredentialNames = [
-    "FORGEJO_TOKEN",
-    "REVIEW_API_BASE",
-    "PERPLEXITY_API_KEY",
-    "ACTIONS_ID_TOKEN_REQUEST_URL",
-    "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
-    "ACTIONS_RUNTIME_TOKEN",
-    "ACTIONS_RUNTIME_URL",
-    "ACTIONS_CACHE_URL",
-    "ACTIONS_RESULTS_URL",
-    "NODE_AUTH_TOKEN",
-    "NPM_TOKEN",
-    "NPM_CONFIG_USERCONFIG",
-    "COREPACK_NPM_TOKEN",
-    "YARN_NPM_AUTH_TOKEN",
-    "GITHUB_TOKEN",
-    "GH_TOKEN",
-    "COPILOT_GITHUB_TOKEN",
-    "CI_JOB_TOKEN",
-    "SSH_AUTH_SOCK",
-  ] as const;
-  const prelude = [
-    "set -eu",
-    "# The OIDC-authenticated axrecipe server creates both paths. They are the only",
-    "# Forgejo-specific context exposed to the untrusted review agent; repository,",
-    "# PR, head SHA, event, API endpoint, and posting credentials are deliberately absent.",
-    "# Remove ambient workflow credentials before axrun. The trusted outer process keeps",
-    "# only AXCREDS/AXCREDROUTER routing; axexec removes those AX* fields and npm-exec",
-    "# state before it spawns the reviewer child.",
-    `unset ${ambientCredentialNames.join(" ")}`,
-    ': "${REVIEW_CONTEXT_PATH:?REVIEW_CONTEXT_PATH is required}"',
-    ': "${REVIEW_OUTPUT_PATH:?REVIEW_OUTPUT_PATH is required}"',
-    'case "$REVIEW_CONTEXT_PATH" in /*) ;; *) echo "REVIEW_CONTEXT_PATH must be absolute" >&2; exit 1 ;; esac',
-    'case "$REVIEW_OUTPUT_PATH" in /*) ;; *) echo "REVIEW_OUTPUT_PATH must be absolute" >&2; exit 1 ;; esac',
-    '[ -f "$REVIEW_CONTEXT_PATH" ] && [ ! -L "$REVIEW_CONTEXT_PATH" ] || {',
-    '  echo "REVIEW_CONTEXT_PATH must be a regular, non-symlink file" >&2',
-    "  exit 1",
-    "}",
-    'if [ ! -e "$REVIEW_OUTPUT_PATH" ]; then',
-    "  :",
-    'elif [ -f "$REVIEW_OUTPUT_PATH" ] && [ ! -L "$REVIEW_OUTPUT_PATH" ]; then',
-    "  :",
-    "else",
-    '  echo "REVIEW_OUTPUT_PATH must be absent or a regular, non-symlink file" >&2',
-    "  exit 1",
-    "fi",
-    "umask 077",
-    ': > "$REVIEW_OUTPUT_PATH"',
-  ].join("\n");
-  return `${prelude}\n\n${runner}\n\nnode - "$REVIEW_OUTPUT_PATH" <<'FORGEJO_STRUCTURED_REVIEW_VALIDATOR'\n${structuredOutputValidator}\ntry {\n  validateForgejoReviewOutputFile(process.argv[2]);\n} catch (error) {\n  console.error(error instanceof Error ? error.message : String(error));\n  process.exit(1);\n}\nFORGEJO_STRUCTURED_REVIEW_VALIDATOR\n`;
+  const marker = "__AXGITHUB_GENERIC_REVIEW_RUNNER__";
+  if (structuredRunnerTemplate.split(marker).length !== 2) {
+    throw new Error(`structured-forgejo-runner.sh must contain exactly one ${marker} marker`);
+  }
+  return structuredRunnerTemplate.replace(marker, () => runner);
 }
 
 function buildStructuredForgejoSettings(
@@ -383,7 +315,7 @@ const GITHUB_RECIPE_DESCRIPTION =
 const FORGEJO_RECIPE_DESCRIPTION =
   "Forgejo PR review slot. Posts via the Forgejo Reviews API. Seeded from axgithub/scripts/seed-review-recipes.ts.";
 const STRUCTURED_FORGEJO_RECIPE_DESCRIPTION =
-  "Credential-free Forgejo review slot. Produces a bounded JSON handoff; a trusted OIDC-bound poster validates current diff positions and posts it. Seeded from axgithub/scripts/seed-review-recipes.ts.";
+  "Isolated Forgejo review generator. Produces a versioned JSON handoff for axrecipe v9 validation; a separate trusted job posts it. Seeded from axgithub/scripts/seed-review-recipes.ts.";
 
 async function api(method: string, path: string, body?: unknown): Promise<Response> {
   return fetch(`${base}${path}`, {
@@ -547,7 +479,7 @@ async function main(): Promise<void> {
   console.log("Done.");
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+if (import.meta.main) {
   await main();
 }
 

@@ -6,10 +6,12 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
 import {
@@ -17,6 +19,8 @@ import {
   structuredForgejoRecipes,
 } from "../scripts/seed-review-recipes.ts";
 
+const here = dirname(fileURLToPath(import.meta.url));
+const repoRoot = join(here, "..");
 const COMMON_OUTER_KEYS = ["AXCREDS", "AXRUN_ALLOW", "PROMPT_TEXT"];
 const PROFILE_OUTER_KEYS = ["AXCREDROUTER", "REVIEW_PROFILE"];
 const DIRECT_OUTER_KEYS = [
@@ -25,6 +29,10 @@ const DIRECT_OUTER_KEYS = [
   "REVIEW_MODEL",
   "REVIEW_PROVIDER",
   "REVIEW_VAULT_CREDENTIAL",
+];
+const EXPECTED_PROMPT_RESOURCES = [
+  "forgejo-review-approach-v1-prompt",
+  "forgejo-review-code-v1-prompt",
 ];
 
 test("structured recipe settings contain only vetted outer-process fields", () => {
@@ -35,19 +43,75 @@ test("structured recipe settings contain only vetted outer-process fields", () =
       ...(recipe.env.REVIEW_PROFILE === undefined ? DIRECT_OUTER_KEYS : PROFILE_OUTER_KEYS),
     ].sort();
     assert.deepEqual(Object.keys(settings.env).sort(), expected, recipe.recipeId);
-    assert.equal("PERPLEXITY_API_KEY" in settings.env, false, recipe.recipeId);
-    assert.equal("FORGEJO_TOKEN" in settings.env, false, recipe.recipeId);
-    assert.equal("REVIEW_API_BASE" in settings.env, false, recipe.recipeId);
   }
 });
 
-test("composed structured runner and axexec boundary remove ambient credentials", () => {
+test("five stable slots share two versioned prompt resources", () => {
+  assert.deepEqual(
+    [...new Set(structuredForgejoRecipes.map((recipe) => recipe.promptResource))].sort(),
+    EXPECTED_PROMPT_RESOURCES,
+  );
+  assert.deepEqual(
+    structuredForgejoRecipes.map((recipe) => recipe.recipeId),
+    [
+      "forgejo-review-approach-smart-1",
+      "forgejo-review-approach-smart-2",
+      "forgejo-review-approach-3",
+      "forgejo-review-code-smart-1",
+      "forgejo-review-code-smart-2",
+    ],
+  );
+});
+
+test("both prompts encode the exact context and result v1 contracts", () => {
+  for (const name of [
+    "forgejo-structured-approach-review-prompt.md",
+    "forgejo-structured-code-review-prompt.md",
+  ]) {
+    const prompt = readFileSync(join(repoRoot, "review-prompts", name), "utf8");
+    const blocks = [...prompt.matchAll(/```json\n(?<json>[\s\S]*?)\n```/gu)].map((match) =>
+      JSON.parse(match.groups?.json ?? "null") as Record<string, unknown>,
+    );
+    assert.equal(blocks.length, 2, name);
+    const [context, result] = blocks;
+    assert.ok(context);
+    assert.deepEqual(Object.keys(context), [
+      "schemaVersion",
+      "slot",
+      "pullRequest",
+      "changedFiles",
+      "diff",
+    ]);
+    assert.equal(context.schemaVersion, 1);
+    assert.deepEqual(Object.keys(context.pullRequest as Record<string, unknown>), ["title", "body"]);
+    assert.deepEqual(Object.keys(context.diff as Record<string, unknown>), ["unified", "truncated"]);
+    assert.ok(result);
+    assert.deepEqual(Object.keys(result), ["schemaVersion", "body", "comments"]);
+    assert.equal(result.schemaVersion, 1);
+    assert.match(prompt, /16,384 UTF-8 bytes/u);
+    assert.match(prompt, /at most 50 comments/u);
+    assert.match(prompt, /1,024 characters/u);
+    assert.match(prompt, /8,192 UTF-8 bytes/u);
+    assert.match(prompt, /65,536 UTF-8 bytes/u);
+    assert.match(prompt, /1,048,576 UTF-8 bytes/u);
+  }
+  assert.match(readFileSync(join(repoRoot, "README.md"), "utf8"), /each have a separate 4 MiB transport cap/u);
+});
+
+test("versioned structured runner is valid shell", () => {
+  const result = spawnSync("sh", ["-n", join(here, "structured-forgejo-runner.sh")], {
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("composed reviewer child environment is a positive allowlist", () => {
   const directory = mkdtempSync(join(tmpdir(), "axgithub-structured-env-"));
   try {
     const bin = join(directory, "bin");
     const contextPath = join(directory, "context.json");
     const outputPath = join(directory, "output.json");
-    const childEnvironmentPath = join(directory, "child-environment.json");
+    const childEnvironmentPath = `${outputPath}.child-environment.json`;
     const axrunPath = join(bin, "axrun");
     const axinstallPath = join(bin, "axinstall");
     mkdirSync(bin);
@@ -59,17 +123,19 @@ if (process.argv[2] === "resolve") {
   console.log(JSON.stringify({ available: true, agentId: "test-agent", credentialName: "test-credential", displayName: "Test" }));
   process.exit(0);
 }
+// Model axexec's real base-environment scrub after the checked-in runner's
+// positive allowlist. Provider auth is deliberately outside this ambient-env test.
 const servicePrefixes = ["AXCREDS", "AXCREDROUTER", "AXSESSION", "AXSANDBOX", "AXVAULT", "AXRECIPE"];
 const child = {};
 for (const [key, value] of Object.entries(process.env)) {
   const upper = key.toUpperCase();
-  const npmLaunchState = key.startsWith("npm_") || upper === "NODE" || upper === "NPM_EXEC_PATH" || upper === "NPM_CONFIG_USER_AGENT" || upper.startsWith("NPM_CONFIG_");
+  const npmLaunchState = key.startsWith("npm_") || upper === "NODE" || upper === "NPM_EXECPATH" || upper === "NPM_CONFIG_USER_AGENT" || upper.startsWith("NPM_CONFIG_");
   const axCredential = upper.startsWith("AX_") && upper.endsWith("_CREDENTIALS");
   const axService = servicePrefixes.some((prefix) => upper === prefix || upper.startsWith(prefix + "_"));
   if (!npmLaunchState && !axCredential && !axService) child[key] = value;
 }
-fs.writeFileSync(process.env.TEST_CHILD_ENV_PATH, JSON.stringify(child));
-fs.writeFileSync(process.env.REVIEW_OUTPUT_PATH, JSON.stringify({ body: "No issues found.", comments: [] }));
+fs.writeFileSync(process.env.REVIEW_OUTPUT_PATH + ".child-environment.json", JSON.stringify(child));
+fs.writeFileSync(process.env.REVIEW_OUTPUT_PATH, JSON.stringify({ schemaVersion: 1, body: "No issues found.", comments: [] }));
 `,
       { mode: 0o700 },
     );
@@ -81,38 +147,35 @@ fs.writeFileSync(process.env.REVIEW_OUTPUT_PATH, JSON.stringify({ body: "No issu
     const recipe = structuredForgejoRecipes[0];
     assert.ok(recipe);
     const settings = buildStructuredForgejoSettings(recipe, recipe.promptResource);
-    const canary = "ambient-secret-canary";
+    const canary = "ambient-authority-canary";
     const result = runShell(settings.args[1], {
       ...process.env,
       ...settings.env,
       PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
       REVIEW_CONTEXT_PATH: contextPath,
       REVIEW_OUTPUT_PATH: outputPath,
-      TEST_CHILD_ENV_PATH: childEnvironmentPath,
+      CI: "true",
+      GITHUB_ACTIONS: "true",
+      GITHUB_WORKSPACE: repoRoot,
+      GITHUB_ENV: canary,
+      GITHUB_PATH: canary,
+      GITHUB_OUTPUT: canary,
+      GITHUB_STATE: canary,
+      GITHUB_STEP_SUMMARY: canary,
       FORGEJO_TOKEN: canary,
-      REVIEW_API_BASE: canary,
-      PERPLEXITY_API_KEY: canary,
-      ACTIONS_ID_TOKEN_REQUEST_URL: canary,
-      ACTIONS_ID_TOKEN_REQUEST_TOKEN: canary,
-      ACTIONS_RUNTIME_TOKEN: canary,
-      ACTIONS_RUNTIME_URL: canary,
-      ACTIONS_CACHE_URL: canary,
-      ACTIONS_RESULTS_URL: canary,
-      NODE_AUTH_TOKEN: canary,
-      NPM_TOKEN: canary,
-      NPM_CONFIG_USERCONFIG: canary,
-      COREPACK_NPM_TOKEN: canary,
-      YARN_NPM_AUTH_TOKEN: canary,
+      GITEA_TOKEN: canary,
       GITHUB_TOKEN: canary,
-      GH_TOKEN: canary,
-      COPILOT_GITHUB_TOKEN: canary,
-      CI_JOB_TOKEN: canary,
-      SSH_AUTH_SOCK: canary,
+      ACTIONS_RUNTIME_TOKEN: canary,
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: canary,
+      NPM_TOKEN: canary,
+      npm_config__authToken: canary,
       AXRECIPE_API_KEY: canary,
       AX_OPENAI_CREDENTIALS: canary,
-      npm_execpath: canary,
-      npm_config_user_agent: canary,
-      npm_config__authToken: canary,
+      AWS_SECRET_ACCESS_KEY: canary,
+      GOOGLE_APPLICATION_CREDENTIALS: canary,
+      KUBECONFIG: canary,
+      DOCKER_CONFIG: canary,
+      FUTURE_FORGE_CREDENTIAL_CHANNEL: canary,
     });
     assert.equal(result.status, 0, result.stderr);
 
@@ -121,9 +184,52 @@ fs.writeFileSync(process.env.REVIEW_OUTPUT_PATH, JSON.stringify({ body: "No issu
       string
     >;
     assert.equal(Object.values(child).includes(canary), false);
-    for (const key of Object.keys(child)) {
-      assert.doesNotMatch(key, /^(?:FORGEJO_|PERPLEXITY_|AX(?:_|CREDS|CREDROUTER|SESSION|SANDBOX|VAULT|RECIPE)|ACTIONS_(?:ID_TOKEN|RUNTIME|CACHE|RESULTS)|NODE_AUTH_TOKEN|NPM_TOKEN|NPM_CONFIG_|COREPACK_NPM_TOKEN|YARN_NPM_AUTH_TOKEN|GITHUB_TOKEN|GH_TOKEN|COPILOT_GITHUB_TOKEN|CI_JOB_TOKEN|SSH_AUTH_SOCK)/iu);
-    }
+    const allowedKeys = new Set([
+      "AXRUN_ALLOW",
+      "CI",
+      "GITHUB_ACTIONS",
+      "GITHUB_WORKSPACE",
+      "HOME",
+      "LANG",
+      "LC_ALL",
+      "PATH",
+      "PROMPT_TEXT",
+      "PWD",
+      "REVIEW_AGENT",
+      "REVIEW_CONTEXT_PATH",
+      "REVIEW_DISPLAY_NAME",
+      "REVIEW_MODEL",
+      "REVIEW_OUTPUT_PATH",
+      "REVIEW_PROFILE",
+      "REVIEW_REASONING_EFFORT",
+      "REVIEW_VAULT_CREDENTIAL",
+      "SHLVL",
+      "TERM",
+      "TMPDIR",
+      "_",
+      // Injected by macOS when /bin/sh starts, even under env -i.
+      "__CF_USER_TEXT_ENCODING",
+    ]);
+    assert.deepEqual(
+      Object.keys(child).filter((key) => !allowedKeys.has(key)),
+      [],
+      JSON.stringify(child, null, 2),
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("seeder main guard remains active through a symlink", () => {
+  const directory = mkdtempSync(join(tmpdir(), "axgithub-seeder-entry-"));
+  try {
+    const link = join(directory, "seed-review-recipes.ts");
+    symlinkSync(join(repoRoot, "scripts", "seed-review-recipes.ts"), link);
+    const environment = { ...process.env };
+    delete environment.AXRECIPE_API_KEY;
+    const result = spawnSync(process.execPath, [link], { encoding: "utf8", env: environment });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /AXRECIPE_API_KEY is required/u);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
