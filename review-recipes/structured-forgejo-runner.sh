@@ -121,6 +121,9 @@ exec 4<"$handoff_path"
 # before untrusted execution; there is deliberately no trusted command after
 # the reviewer returns. Validation and posting happen outside this generator.
 inner_runner="$("$mktemp_bin" "${TMPDIR:-/tmp}/axgithub-structured-runner.XXXXXX")"
+# The final clean phase execs axrun to discard the handoff-bearing shell, so it
+# cannot remove this home after the model exits. Hosted runners discard it with
+# the job; persistent runners must prune this namespaced temporary directory.
 review_home="$(umask 077; "$mktemp_bin" -d "${TMPDIR:-/tmp}/axgithub-review-home.XXXXXX")"
 trusted_npm_prefix="$(npm prefix -g)"
 case "$trusted_npm_prefix" in
