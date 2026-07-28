@@ -303,7 +303,7 @@ function buildStructuredForgejoRunner(): string {
   exit 1
 }`;
   const structuredRequirePrefetched = `require_prefetched() {
-  echo "$1 not on PATH after structured axinstall: selected agent installation did not populate $NPM_CONFIG_PREFIX/bin" >&2
+  echo "$1 not on PATH: the workflow must preinstall every selectable review agent before axrecipe starts" >&2
   exit 1
 }`;
   const legacyAxrun = `run_axrun() {
@@ -326,7 +326,37 @@ function buildStructuredForgejoRunner(): string {
   fi
   npm exec --yes --package=@j4k/axinstall@3.0.7 -- axinstall "$@"
 }`;
-  const structuredAxinstall = `run_axinstall() { :; }`;
+  const legacyAgentInstall = `if [ "$REVIEW_AGENT" = "cursor" ]; then
+  run_axinstall "$REVIEW_AGENT"
+else
+  run_axinstall "$REVIEW_AGENT" --with npm
+fi`;
+  const legacyOpencodePath = `if [ "$REVIEW_AGENT" = "opencode" ]; then
+  opencode_path="$(command -v opencode || true)"
+  npm_global_bin="$(npm prefix -g)/bin"
+  if [ -z "$opencode_path" ] && [ -x "$npm_global_bin/opencode" ]; then
+    export PATH="$npm_global_bin:$PATH"
+    opencode_path="$npm_global_bin/opencode"
+  fi
+  if [ -n "$opencode_path" ]; then
+    export AXEXEC_OPENCODE_PATH="$opencode_path"
+  fi
+fi`;
+  const structuredOpencodePath = `if [ "$REVIEW_AGENT" = "opencode" ]; then
+  opencode_path="$(command -v opencode || true)"
+  if [ -n "$opencode_path" ]; then
+    export AXEXEC_OPENCODE_PATH="$opencode_path"
+  fi
+fi`;
+  const legacyNpmPath = `npm_global_bin="$(npm prefix -g)/bin"
+case ":$PATH:" in
+  *":$npm_global_bin:"*) ;;
+  *) export PATH="$npm_global_bin:$PATH" ;;
+esac
+case ":$PATH:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) export PATH="$HOME/.local/bin:$PATH" ;;
+esac`;
   const legacyProvider = `provider_args=""
 if [ -n "\${REVIEW_PROVIDER:-}" ]; then
   provider_args="--provider $REVIEW_PROVIDER"
@@ -363,16 +393,29 @@ fs.writeFileSync(output, JSON.stringify(state), { encoding: "utf8", flag: "wx", 
 WRITE_STRUCTURED_REVIEW_STATE`;
   const withoutLegacyTools = replaceExactlyOnce(
     replaceExactlyOnce(
-      replaceExactlyOnce(runner, legacyRequirePrefetched, structuredRequirePrefetched),
-      legacyAxrun,
-      "",
+      replaceExactlyOnce(
+        replaceExactlyOnce(
+          replaceExactlyOnce(runner, legacyRequirePrefetched, structuredRequirePrefetched),
+          legacyAxrun,
+          "",
+        ),
+        legacyAxinstall,
+        "",
+      ),
+      legacyAgentInstall,
+      "# Structured agents are preinstalled before axrecipe starts.",
     ),
-    legacyAxinstall,
-    structuredAxinstall,
+    legacyOpencodePath,
+    structuredOpencodePath,
+  );
+  const withoutLegacyPaths = replaceExactlyOnce(
+    withoutLegacyTools,
+    legacyNpmPath,
+    "# Structured agents are preinstalled on the trusted PATH.",
   );
   const withoutLegacyRouting = replaceExactlyOnce(
     replaceExactlyOnce(
-      withoutLegacyTools,
+      withoutLegacyPaths,
       profileResolve,
       "if false; then\n  # Profile resolution completed before the clean boundary.",
     ),

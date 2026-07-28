@@ -72,11 +72,6 @@ if [ -z "$trusted_axrun" ]; then
   echo "axrun is not on PATH: the workflow must pre-fetch @j4k/axrun@5.0.0" >&2
   exit 1
 fi
-trusted_axinstall="$(command -v axinstall || true)"
-if [ -z "$trusted_axinstall" ]; then
-  echo "axinstall is not on PATH: the workflow must pre-fetch @j4k/axinstall" >&2
-  exit 1
-fi
 trusted_node="$(command -v node || true)"
 if [ -z "$trusted_node" ]; then
   echo "node is not on PATH" >&2
@@ -152,27 +147,28 @@ trusted_dir=""
 : "${REVIEW_AGENT:?REVIEW_AGENT is required}"
 : "${REVIEW_VAULT_CREDENTIAL:?REVIEW_VAULT_CREDENTIAL is required}"
 
-# Install the selected agent before creating the credential handoff. The
-# installer gets a scratch home/prefix and no credential authority or open
-# handoff descriptor, so package lifecycle processes cannot inherit either.
-review_home="$(umask 077; "$mktemp_bin" -d "${TMPDIR:-/tmp}/axgithub-review-home.XXXXXX")"
-review_npm_prefix="$review_home/npm-global"
-review_tmp="$review_home/tmp"
-/bin/mkdir -m 700 "$review_npm_prefix"
-/bin/mkdir -m 700 "$review_tmp"
+# No package installation is permitted in this secret-bearing process tree:
+# lifecycle scripts can daemonize and outlive their installer. The workflow
+# must preinstall every selectable agent before it starts axrecipe; this check
+# fails closed if profile routing selects one that the trusted PATH omitted.
+case "$REVIEW_AGENT" in
+  claude|codex|copilot|cursor|gemini|opencode) ;;
+  *) echo "unsupported structured review agent: $REVIEW_AGENT" >&2; exit 1 ;;
+esac
 if [ "$REVIEW_AGENT" = "cursor" ]; then
-  /usr/bin/env -i \
-    "HOME=$review_home" \
-    "PATH=$PATH" \
-    "NPM_CONFIG_PREFIX=$review_npm_prefix" \
-    "$trusted_axinstall" "$REVIEW_AGENT"
+  review_agent_command=agent
 else
-  /usr/bin/env -i \
-    "HOME=$review_home" \
-    "PATH=$PATH" \
-    "NPM_CONFIG_PREFIX=$review_npm_prefix" \
-    "$trusted_axinstall" "$REVIEW_AGENT" --with npm
+  review_agent_command="$REVIEW_AGENT"
 fi
+review_agent_bin="$(command -v "$review_agent_command" || true)"
+if [ -z "$review_agent_bin" ]; then
+  echo "$review_agent_command is not on PATH: the workflow must preinstall every selectable review agent before axrecipe starts" >&2
+  exit 1
+fi
+
+review_home="$(umask 077; "$mktemp_bin" -d "${TMPDIR:-/tmp}/axgithub-review-home.XXXXXX")"
+review_tmp="$review_home/tmp"
+/bin/mkdir -m 700 "$review_tmp"
 
 # Run every agent-configuration and prompt helper before the credential exists.
 # The seeder changes the generic runner's fixed /tmp paths to this private
@@ -186,8 +182,7 @@ AXGITHUB_GENERIC_REVIEW_RUNNER
 /bin/chmod 500 "$inner_runner"
 /usr/bin/env -i \
   "HOME=$review_home" \
-  "PATH=$review_npm_prefix/bin:$PATH" \
-  "NPM_CONFIG_PREFIX=$review_npm_prefix" \
+  "PATH=$PATH" \
   "TMPDIR=$review_tmp" \
   "REVIEW_CONTEXT_PATH=$REVIEW_CONTEXT_PATH" \
   "REVIEW_OUTPUT_PATH=$REVIEW_OUTPUT_PATH" \

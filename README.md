@@ -169,16 +169,17 @@ decoded semantic limits remain authoritative. Axrecipe v9—not the untrusted
 generator shell—owns the O_NOFOLLOW bounded read, strict schema validation, run
 binding, and exact-byte result submission.
 
-The checked-in structured runner first resolves a profile (when configured)
-and prepares the selected agent and prompt under `env -i`. That preparation
-environment contains a fresh temporary `HOME`/`TMPDIR`, a per-review
-`NPM_CONFIG_PREFIX`, inherited `PATH`, the two axrecipe paths, prompt text, and
-model routing. This credential-free preparation also substitutes the resolved
-display name and model into the required review-body signature, so the exact
-three-key result schema retains lane attribution without exposing routing
-variables in the final model environment. It contains neither
-`AXCREDS`/`AXCREDROUTER`, a vault credential name, nor `REVIEW_PROVIDER`, and
-every helper process exits before a credential handoff exists.
+The checked-in structured runner first resolves a profile (when configured),
+requires the selected agent to exist on the trusted `PATH`, and prepares its
+wrappers and prompt under `env -i`. That preparation environment contains a
+fresh temporary `HOME`/`TMPDIR`, inherited `PATH`, the two axrecipe paths,
+prompt text, and model routing. It executes no package manager or installer.
+Credential-free preparation also substitutes the resolved display name and
+model into the required review-body signature, so the exact three-key result
+schema retains lane attribution without exposing routing variables in the
+final model environment. It contains neither `AXCREDS`/`AXCREDROUTER`, a vault
+credential name, nor `REVIEW_PROVIDER`, and every helper process exits before
+a credential handoff exists.
 
 Only then does the wrapper ask `@j4k/axrun@5` to export the selected credential
 into an exclusive `0600` file and `exec` a clean Node launcher. The launcher
@@ -193,24 +194,25 @@ descriptor;
 `REVIEW_PROVIDER` is solely a legacy direct-mode input and must not be
 reintroduced here.
 
-The runner invokes the pre-fetched `axinstall` under a separate clean
-environment and temporary npm prefix before it creates the credential handoff.
-The composed generator therefore has no install fallback, and package lifecycle
-processes cannot inherit the credential descriptor. The inherited `PATH` is an
-execution-only dependency: the workflow must make every shared directory on it
-read-only to the untrusted generator identity (or expose it via a read-only
-mount). A writable tool prefix would be ambient write authority, not an
-acceptable prefetch cache.
+The consuming workflow must supply every agent reachable through the five
+slots before it starts the secret-bearing axrecipe process. Installation cannot
+run earlier in the same persistent UID/process/mount namespace: a package
+lifecycle script could daemonize, wait for the later handoff path, and steal
+the credential. Use an immutable runner image or install in a disposable job or
+container whose entire process namespace is destroyed, then expose the result
+to the review job as a read-only tool artifact. The inherited `PATH` is an
+execution-only dependency; every shared directory on it must be read-only to
+the untrusted generator identity. A writable tool prefix is ambient write
+authority, not an acceptable prefetch cache.
 
 The wrapper targets the hosted Linux/macOS runner layout explicitly: core
 utilities and `sh` under `/bin`, `env` under `/usr/bin`, and `mktemp` under
 either `/usr/bin` or `/bin`. A custom runner image must provide those paths.
 
 This is a process-environment boundary, not a same-UID sandbox. The consuming
-workflow must isolate both package lifecycle processes and the untrusted
-generator so neither can inspect the wrapper or workflow ancestors through
-`/proc`, and it must not leave a trusted poster step in that identity. It must
-also use
+workflow must isolate the untrusted generator so it cannot inspect the wrapper
+or workflow ancestors through `/proc`, and it must not leave a trusted poster
+step in that identity. It must also use
 `persist-credentials: false` and a credential-free home: environment isolation
 cannot remove credentials stored in `.git/config`, `~/.npmrc`, SSH/Git/GitHub
 configuration, or another process's environment.
@@ -220,6 +222,12 @@ instruction or API authority, and no trusted poster step follows it in the same
 job. The poster independently binds the accepted result to the
 OIDC-authenticated repository/PR/head/slot, re-fetches the current diff,
 validates each path and position, and posts exactly once.
+
+During the rollout overlap, pre-fetch `@j4k/axrun@5` for both rosters. Version 5
+retains the legacy direct-mode `--vault-credential` and `--provider` flags, so
+the direct-post recipes can use the same binary; their `2.12.0` npm fallback is
+not a workflow installation path. Structured recipes additionally require the
+v5 credential-export and handoff-fd capabilities that the wrapper probes.
 
 After every managed Forgejo workflow has moved to the structured slots, finish
 the hard cutover in one change: delete

@@ -120,14 +120,14 @@ test("structured runner prepares helpers before handing its descriptor to axrun"
   assert.match(command, /typeof resolved\.credentialName !== "string"/u);
   assert.match(command, /cat > "\$TMPDIR\/substitute-prompt\.cjs"/u);
   assert.match(command, /\/bin\/rm -f "\$inner_runner"\ninner_runner=""/u);
-  assert.match(command, /not on PATH after structured axinstall/u);
+  assert.match(command, /preinstall every selectable review agent before axrecipe starts/u);
   assert.doesNotMatch(command, /trusted review-tools prefix/u);
-  assert.match(command, /run_axinstall\(\) \{ :; \}/u);
-  assert.doesNotMatch(command, /package=@j4k\/axinstall/u);
+  assert.doesNotMatch(command, /axinstall/u);
+  assert.doesNotMatch(command, /trusted_axinstall|NPM_CONFIG_PREFIX|npm prefix -g|npm-global/u);
   assert.doesNotMatch(command, /@j4k\/axrun@2\.12\.0/u);
   assert.doesNotMatch(command, /provider_args/u);
   assert.ok(
-    command.indexOf('"$trusted_axinstall" "$REVIEW_AGENT"') <
+    command.indexOf('review_agent_bin="$(command -v "$review_agent_command"') <
       command.lastIndexOf('"$trusted_axrun" credential export'),
   );
   assert.ok(
@@ -150,8 +150,8 @@ test("composed reviewer child environment is a positive allowlist", () => {
     const bin = join(directory, "bin");
     const contextPath = join(directory, "context.json");
     const axrunPath = join(bin, "axrun");
-    const axinstallPath = join(bin, "axinstall");
     const claudePath = join(bin, "claude");
+    const opencodePath = join(bin, "opencode");
     mkdirSync(bin);
     writeFileSync(
       axrunPath,
@@ -221,11 +221,11 @@ fs.writeFileSync(process.env.REVIEW_OUTPUT_PATH, JSON.stringify({ schemaVersion:
 `,
       { mode: 0o700 },
     );
-    writeFileSync(axinstallPath, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
     writeFileSync(claudePath, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    writeFileSync(opencodePath, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
     chmodSync(axrunPath, 0o700);
-    chmodSync(axinstallPath, 0o700);
     chmodSync(claudePath, 0o700);
+    chmodSync(opencodePath, 0o700);
     writeFileSync(contextPath, "{}\n", { mode: 0o600 });
 
     const canary = "ambient-authority-canary";
