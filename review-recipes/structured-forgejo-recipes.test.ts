@@ -119,6 +119,7 @@ test("structured runner prepares helpers before handing its descriptor to axrun"
   assert.match(command, /typeof resolved\.agentId !== "string"/u);
   assert.match(command, /typeof resolved\.credentialName !== "string"/u);
   assert.match(command, /cat > "\$TMPDIR\/substitute-prompt\.cjs"/u);
+  assert.match(command, /\/bin\/rm -f "\$inner_runner"\ninner_runner=""/u);
   assert.match(command, /not on PATH after structured axinstall/u);
   assert.doesNotMatch(command, /trusted review-tools prefix/u);
   assert.match(command, /run_axinstall\(\) \{ :; \}/u);

@@ -199,6 +199,7 @@ AXGITHUB_GENERIC_REVIEW_RUNNER
   "REVIEW_PROFILE=${REVIEW_PROFILE:-}" \
   "REVIEW_REASONING_EFFORT=${REVIEW_REASONING_EFFORT:-}" \
   /bin/sh "$inner_runner"
+/bin/rm -f "$inner_runner"
 inner_runner=""
 
 prepared_parser="$review_home/parse-prepared-state.cjs"
