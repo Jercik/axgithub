@@ -72,8 +72,10 @@ jobs:
 ## Review runner
 
 [`review-recipes/review-runner.sh`](review-recipes/review-runner.sh) is the
-shell script each review recipe executes on the runner. It has two modes,
-selected by whether `REVIEW_PROFILE` is set in the recipe env.
+shell script each legacy direct-post recipe executes on the runner. The
+structured Forgejo slots embed a transformed copy under the isolated wrapper
+described below. The generic runner has two modes, selected by whether
+`REVIEW_PROFILE` is set in the recipe env.
 
 **Profile mode (resolve → install → run).** When `REVIEW_PROFILE` names an
 [axcredrouter](https://credrouter.axkit.dev) profile (e.g. `smart-pr-review`),
@@ -100,6 +102,141 @@ the prompt with a node split/join pass (safe for `| & \` and newlines, unlike
 sed). The resolved credential name is only ever passed to
 `--vault-credential` — it never appears in the prompt or the posted review;
 public attribution uses the display name.
+
+### Forgejo structured-review recipes
+
+`scripts/seed-review-recipes.ts` also creates a separate, versioned Forgejo
+recipe for each enabled review slot:
+
+- `forgejo-review-approach-smart-1`
+- `forgejo-review-approach-smart-2`
+- `forgejo-review-approach-3`
+- `forgejo-review-code-smart-1`
+- `forgejo-review-code-smart-2`
+
+These replace the existing six-recipe Forgejo direct-post roster at the OIDC
+cutover; the new roster deliberately has five slots and is not a one-for-one
+rename. The fable and Gemini slots are retired, while each smart lane gets two
+independent draws. During rollout the seeder keeps the legacy roster in the
+explicitly isolated `seedLegacyForgejoDirectPostRecipes` path so current
+workflows continue to run; there is no runtime fallback between the two sets.
+The structured slots are the OIDC migration contract shared with `axrecipe`,
+`j4k/cluster`, and `j4k/align`.
+The five slots share two versioned resources:
+
+- `forgejo-review-approach-v1-prompt`
+- `forgejo-review-code-v1-prompt`
+
+Axrecipe v9 supplies two nonsecret paths to the generator:
+`REVIEW_CONTEXT_PATH` and `REVIEW_OUTPUT_PATH`. The context is a bounded JSON
+document with this exact shape:
+
+```json
+{
+  "schemaVersion": 1,
+  "slot": "forgejo-review-code-smart-1",
+  "pullRequest": {"title": "...", "body": "..."},
+  "changedFiles": ["src/file.ts"],
+  "diff": {"unified": "diff --git ...", "truncated": false}
+}
+```
+
+Title is limited to 512 characters; body to 64 KiB UTF-8; changed files to 500
+normalized repository-relative paths of at most 1,024 characters; and the
+unified diff to 1 MiB UTF-8. `diff.truncated` records whether the producer had
+to cut it. The context never contains a repository slug/ID, PR number, commit
+or ref, event/run identity, or forge/API coordinate. Repository identity may
+still be discoverable from the credential-free checkout itself; it is not an
+authorization secret.
+
+The generator must write one exact version 1 result document:
+
+```json
+{
+  "schemaVersion": 1,
+  "body": "A concise non-empty summary",
+  "comments": [
+    {"path": "src/file.ts", "new_position": 12, "body": "A finding"}
+  ]
+}
+```
+
+The body is at most 16,384 UTF-8 bytes. There are at most 50 comments; each has
+`path`, `body`, and exactly one positive `new_position` or `old_position`.
+Paths are at most 1,024 characters and comment bodies at most 8,192 UTF-8 bytes.
+Raw context and result JSON files each have a separate 4 MiB transport cap;
+decoded semantic limits remain authoritative. Axrecipe v9—not the untrusted
+generator shell—owns the O_NOFOLLOW bounded read, strict schema validation, run
+binding, and exact-byte result submission.
+
+The checked-in structured runner first resolves a profile (when configured),
+requires the selected agent to exist on the trusted `PATH`, and prepares its
+wrappers and prompt under `env -i`. That preparation environment contains a
+fresh temporary `HOME`/`TMPDIR`, inherited `PATH`, the two axrecipe paths,
+prompt text, and model routing. It executes no package manager or installer.
+Credential-free preparation also substitutes the resolved display name and
+model into the required review-body signature, so the exact three-key result
+schema retains lane attribution without exposing routing variables in the
+final model environment. It contains neither `AXCREDS`/`AXCREDROUTER`, a vault
+credential name, nor `REVIEW_PROVIDER`, and every helper process exits before
+a credential handoff exists.
+
+Only then does the wrapper ask `@j4k/axrun@5` to export the selected credential
+into an exclusive `0600` file and `exec` a clean Node launcher. The launcher
+opens and unlinks that file, maps it to fd 4 only in axrun, closes its own copy
+immediately, and remains a credential-free parent. The final environment
+contains the scratch `HOME` and `TMPDIR`, prepared `PATH` and optional
+`AXEXEC_*_PATH`, the two axrecipe paths, basic locale/process state, and
+nonsecret `CI`, `GITHUB_ACTIONS`, and `GITHUB_WORKSPACE` metadata. Axrun
+validates, reads, and closes fd 4 before it spawns the selected model. In this
+v5 direct-handoff flow the provider comes from the agent-bound credential
+descriptor;
+`REVIEW_PROVIDER` is solely a legacy direct-mode input and must not be
+reintroduced here.
+
+The consuming workflow must supply every agent reachable through the five
+slots before it starts the secret-bearing axrecipe process. Installation cannot
+run earlier in the same persistent UID/process/mount namespace: a package
+lifecycle script could daemonize, wait for the later handoff path, and steal
+the credential. Use an immutable runner image or install in a disposable job or
+container whose entire process namespace is destroyed, then expose the result
+to the review job as a read-only tool artifact. The inherited `PATH` is an
+execution-only dependency; every shared directory on it must be read-only to
+the untrusted generator identity. A writable tool prefix is ambient write
+authority, not an acceptable prefetch cache.
+
+The wrapper targets the hosted Linux/macOS runner layout explicitly: core
+utilities and `sh` under `/bin`, `env` under `/usr/bin`, and `mktemp` under
+either `/usr/bin` or `/bin`. A custom runner image must provide those paths.
+
+This is a process-environment boundary, not a same-UID sandbox. The consuming
+workflow must isolate the untrusted generator so it cannot inspect the wrapper
+or workflow ancestors through `/proc`, and it must not leave a trusted poster
+step in that identity. It must also use
+`persist-credentials: false` and a credential-free home: environment isolation
+cannot remove credentials stored in `.git/config`, `~/.npmrc`, SSH/Git/GitHub
+configuration, or another process's environment.
+
+Generation and posting run in separate jobs. The generator has no review-posting
+instruction or API authority, and no trusted poster step follows it in the same
+job. The poster independently binds the accepted result to the
+OIDC-authenticated repository/PR/head/slot, re-fetches the current diff,
+validates each path and position, and posts exactly once.
+
+During the rollout overlap, pre-fetch `@j4k/axrun@5` for both rosters. Version 5
+retains the legacy direct-mode `--vault-credential` and `--provider` flags, so
+the direct-post recipes can use the same binary; their `2.12.0` npm fallback is
+not a workflow installation path. Structured recipes additionally require the
+v5 credential-export and handoff-fd capabilities that the wrapper probes.
+
+After every managed Forgejo workflow has moved to the structured slots, finish
+the hard cutover in one change: delete
+`seedLegacyForgejoDirectPostRecipes` and its isolated resources/recipe arrays,
+move every retired Forgejo recipe ID into `staleRecipeIds`, remove those IDs
+from the cluster-managed execute-key scope, and reseed. Historical recipes with
+recorded runs may remain in the database, but the seeder must report them until
+an operator can prune them, and no key may authorize them. Do not add a
+compatibility flag or fall back to the old IDs.
 
 ## Gotchas
 

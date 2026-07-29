@@ -4,35 +4,33 @@
  *
  * Recipes and their prompt resources otherwise live only in the server
  * database (edited via axconsole). This script makes both sets reproducible
- * from version control: the canonical runner shell script
- * (review-recipes/review-runner.sh) and the four prompts
- * (review-prompts/pr-review-*-prompt.md) are the source of truth.
+ * from version control: the canonical runner sources in review-recipes/ and
+ * the prompts in review-prompts/ are the source of truth.
  *
- * The runner is forge-agnostic; the entire forge coupling is in the prompt
- * resources — the GitHub prompts post via the GitHub Reviews API with gh,
- * the Forgejo prompts via the Forgejo Reviews API with curl. The workflow
- * supplies the forge token and PR coordinates (REVIEW_REPOSITORY,
- * REVIEW_PR_NUMBER, plus FORGEJO_TOKEN + REVIEW_API_BASE on Forgejo) in the
- * job env, which the spawned agent inherits.
+ * Legacy recipes keep their direct-post prompts for the GitHub and Forgejo
+ * workflows that still use them. The new Forgejo structured recipes are
+ * deliberately separate: an untrusted LLM can only read a trusted, nonsecret
+ * context file and write a strictly bounded JSON handoff. A trusted poster
+ * later binds that handoff to its authenticated PR/head/slot and posts it.
  *
  *   AXRECIPE_API_KEY=<admin key> AXRECIPE_URL=https://recipe.axkit.dev \
  *     node scripts/seed-review-recipes.ts
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const base = (process.env.AXRECIPE_URL ?? "https://recipe.axkit.dev").replace(/\/$/u, "");
 const apiKey = process.env.AXRECIPE_API_KEY;
-if (!apiKey) {
-  console.error("AXRECIPE_API_KEY is required (admin/manage-scoped key).");
-  process.exit(1);
-}
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "..");
 const runner = readFileSync(join(repoRoot, "review-recipes", "review-runner.sh"), "utf8");
+const structuredRunnerTemplate = readFileSync(
+  join(repoRoot, "review-recipes", "structured-forgejo-runner.sh"),
+  "utf8",
+);
 
 function readPrompt(file: string): string {
   return readFileSync(join(repoRoot, "review-prompts", file), "utf8");
@@ -42,6 +40,8 @@ const GITHUB_CODE_PROMPT_RESOURCE = "pr-review-code-github-prompt";
 const GITHUB_APPROACH_PROMPT_RESOURCE = "pr-review-approach-github-prompt";
 const FORGEJO_CODE_PROMPT_RESOURCE = "pr-review-code-forgejo-prompt";
 const FORGEJO_APPROACH_PROMPT_RESOURCE = "pr-review-approach-forgejo-prompt";
+const STRUCTURED_FORGEJO_APPROACH_PROMPT_RESOURCE = "forgejo-review-approach-v1-prompt";
+const STRUCTURED_FORGEJO_CODE_PROMPT_RESOURCE = "forgejo-review-code-v1-prompt";
 
 interface Resource {
   resourceId: string;
@@ -64,6 +64,26 @@ const resources: Resource[] = [
       "GitHub-shaped approach review prompt; posts via the GitHub Reviews API with gh.",
     content: readPrompt("pr-review-approach-prompt.md"),
   },
+  {
+    resourceId: STRUCTURED_FORGEJO_APPROACH_PROMPT_RESOURCE,
+    name: "Structured Forgejo approach review prompt v1",
+    description: "Version 1 credential-free structured handoff prompt for Forgejo approach slots.",
+    content: readPrompt("forgejo-structured-approach-review-prompt.md"),
+  },
+  {
+    resourceId: STRUCTURED_FORGEJO_CODE_PROMPT_RESOURCE,
+    name: "Structured Forgejo code review prompt v1",
+    description: "Version 1 credential-free structured handoff prompt for Forgejo code slots.",
+    content: readPrompt("forgejo-structured-code-review-prompt.md"),
+  },
+];
+
+// Rollout-only compatibility set. Once every Forgejo workflow uses the OIDC
+// structured slots, delete this array and seedLegacyForgejoDirectPostRecipes,
+// then remove these recipe IDs from the cluster-managed execute-key scope.
+// Keeping the legacy set physically separate makes the hard cutover a deletion,
+// not a permanent flag or fallback.
+const legacyForgejoDirectPostResources: Resource[] = [
   {
     resourceId: FORGEJO_CODE_PROMPT_RESOURCE,
     name: "PR code review prompt (Forgejo)",
@@ -201,6 +221,47 @@ const forgejoApproachRecipes: Recipe[] = [
   },
 ];
 
+// Stable slot IDs are the shared vocabulary for the axkit OIDC binding,
+// cluster policy, and j4k-align matrix. Never repurpose a slot for another
+// reviewer: a run binding must always describe one deterministic review slot.
+const structuredForgejoRecipes: Array<Recipe & { promptResource: string }> = [
+  {
+    recipeId: "forgejo-review-approach-smart-1",
+    name: "Structured Forgejo approach review (smart draw 1)",
+    env: { ...SMART_ENV },
+    promptResource: STRUCTURED_FORGEJO_APPROACH_PROMPT_RESOURCE,
+  },
+  {
+    recipeId: "forgejo-review-approach-smart-2",
+    name: "Structured Forgejo approach review (smart draw 2)",
+    env: { ...SMART_ENV },
+    promptResource: STRUCTURED_FORGEJO_APPROACH_PROMPT_RESOURCE,
+  },
+  {
+    recipeId: "forgejo-review-approach-3",
+    name: "Structured Forgejo approach review (approach 3)",
+    env: {
+      REVIEW_AGENT: "opencode",
+      REVIEW_MODEL: "GLM-5.2",
+      REVIEW_DISPLAY_NAME: "Approach Review 3 (OpenCode Wafer)",
+      REVIEW_VAULT_CREDENTIAL: "ci-opencode-wafer-credentials",
+    },
+    promptResource: STRUCTURED_FORGEJO_APPROACH_PROMPT_RESOURCE,
+  },
+  {
+    recipeId: "forgejo-review-code-smart-1",
+    name: "Structured Forgejo code review (smart draw 1)",
+    env: { ...SMART_ENV },
+    promptResource: STRUCTURED_FORGEJO_CODE_PROMPT_RESOURCE,
+  },
+  {
+    recipeId: "forgejo-review-code-smart-2",
+    name: "Structured Forgejo code review (smart draw 2)",
+    env: { ...SMART_ENV },
+    promptResource: STRUCTURED_FORGEJO_CODE_PROMPT_RESOURCE,
+  },
+];
+
 // Replaced by the smart set. DELETE /recipes/:id responds 409 when runs
 // exist, so the seeder never deletes — it reports which of these are still
 // live so an operator can descope the execute keys and prune manually.
@@ -227,10 +288,207 @@ function buildSettings(recipe: Recipe, promptResource: string, withPerplexity: b
   return { command: "sh", args: ["-c", runner], env };
 }
 
+function buildStructuredForgejoRunner(): string {
+  const replaceExactlyOnce = (source: string, expected: string, replacement: string): string => {
+    if (source.split(expected).length !== 2) {
+      throw new Error(`structured review runner expected exactly one ${JSON.stringify(expected)}`);
+    }
+    return source.replace(expected, () => replacement);
+  };
+  const profileResolve =
+    'if [ -n "${REVIEW_PROFILE:-}" ]; then\n' +
+    "  # Exit 1 = all lanes exhausted (the intended red check); set -e fails the job here.";
+  const legacyRequirePrefetched = `require_prefetched() {
+  echo "$1 not on PATH: the workflow must pre-fetch $2 into the trusted review-tools prefix (no registry auth exists after the credential strip)" >&2
+  exit 1
+}`;
+  const structuredRequirePrefetched = `require_prefetched() {
+  echo "$1 not on PATH: the workflow must preinstall every selectable review agent before axrecipe starts" >&2
+  exit 1
+}`;
+  const legacyAxrun = `run_axrun() {
+  if command -v axrun >/dev/null 2>&1; then
+    axrun "$@"
+    return
+  fi
+  if [ -n "\${GITHUB_ACTIONS:-}" ]; then
+    require_prefetched axrun @j4k/axrun@2.12.0
+  fi
+  npm exec --yes --package=@j4k/axrun@2.12.0 -- axrun "$@"
+}`;
+  const legacyAxinstall = `run_axinstall() {
+  if command -v axinstall >/dev/null 2>&1; then
+    axinstall "$@"
+    return
+  fi
+  if [ -n "\${GITHUB_ACTIONS:-}" ]; then
+    require_prefetched axinstall @j4k/axinstall@3.0.7
+  fi
+  npm exec --yes --package=@j4k/axinstall@3.0.7 -- axinstall "$@"
+}`;
+  const legacyAgentInstall = `if [ "$REVIEW_AGENT" = "cursor" ]; then
+  run_axinstall "$REVIEW_AGENT"
+else
+  run_axinstall "$REVIEW_AGENT" --with npm
+fi`;
+  const legacyOpencodePath = `if [ "$REVIEW_AGENT" = "opencode" ]; then
+  opencode_path="$(command -v opencode || true)"
+  npm_global_bin="$(npm prefix -g)/bin"
+  if [ -z "$opencode_path" ] && [ -x "$npm_global_bin/opencode" ]; then
+    export PATH="$npm_global_bin:$PATH"
+    opencode_path="$npm_global_bin/opencode"
+  fi
+  if [ -n "$opencode_path" ]; then
+    export AXEXEC_OPENCODE_PATH="$opencode_path"
+  fi
+fi`;
+  const structuredOpencodePath = `if [ "$REVIEW_AGENT" = "opencode" ]; then
+  opencode_path="$(command -v opencode || true)"
+  if [ -n "$opencode_path" ]; then
+    export AXEXEC_OPENCODE_PATH="$opencode_path"
+  fi
+fi`;
+  const legacyNpmPath = `npm_global_bin="$(npm prefix -g)/bin"
+case ":$PATH:" in
+  *":$npm_global_bin:"*) ;;
+  *) export PATH="$npm_global_bin:$PATH" ;;
+esac
+case ":$PATH:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) export PATH="$HOME/.local/bin:$PATH" ;;
+esac`;
+  const legacyProvider = `provider_args=""
+if [ -n "\${REVIEW_PROVIDER:-}" ]; then
+  provider_args="--provider $REVIEW_PROVIDER"
+fi`;
+  const legacyInvocation = `run_axrun --agent "$REVIEW_AGENT" \\
+$provider_args \\
+$model_args \\
+$effort_args \\
+--vault-credential "$REVIEW_VAULT_CREDENTIAL" \\
+--allow "$AXRUN_ALLOW" \\
+--prompt "$(cat /tmp/prompt.md)"`;
+  // Axrun v5 binds the provider to the exported agent credential descriptor.
+  // Structured recipes must not forward the legacy REVIEW_PROVIDER variable.
+  const preparationInvocation = `node - "$AXRUN_PREPARED_STATE" "$TMPDIR/prompt.md" <<'WRITE_STRUCTURED_REVIEW_STATE'
+const fs = require("node:fs");
+const [output, promptPath] = process.argv.slice(2);
+const shellQuote = (value) => "'" + String(value).replace(/'/g, "'\\\\''") + "'";
+for (const [environmentName, marker, realName] of [
+  ["AXEXEC_CLAUDE_PATH", "__AXGITHUB_CLAUDE_REAL__", "claude-real"],
+  ["AXEXEC_CODEX_PATH", "__AXGITHUB_CODEX_REAL__", "codex-real"],
+]) {
+  const wrapper = process.env[environmentName];
+  if (!wrapper) continue;
+  const source = fs.readFileSync(wrapper, "utf8");
+  const target = shellQuote(String(process.env.TMPDIR) + "/axreview-bin/" + realName);
+  if (source.split(marker).length !== 2) throw new Error("expected exactly one " + marker);
+  fs.writeFileSync(wrapper, source.replace(marker, () => target), "utf8");
+}
+const state = { PATH: process.env.PATH, PROMPT: fs.readFileSync(promptPath, "utf8") };
+for (const name of ["AXEXEC_CLAUDE_PATH", "AXEXEC_CODEX_PATH", "AXEXEC_CURSOR_PATH", "AXEXEC_OPENCODE_PATH"]) {
+  if (process.env[name]) state[name] = process.env[name];
+}
+fs.writeFileSync(output, JSON.stringify(state), { encoding: "utf8", flag: "wx", mode: 0o600 });
+WRITE_STRUCTURED_REVIEW_STATE`;
+  const withoutLegacyTools = replaceExactlyOnce(
+    replaceExactlyOnce(
+      replaceExactlyOnce(
+        replaceExactlyOnce(
+          replaceExactlyOnce(runner, legacyRequirePrefetched, structuredRequirePrefetched),
+          legacyAxrun,
+          "",
+        ),
+        legacyAxinstall,
+        "",
+      ),
+      legacyAgentInstall,
+      "# Structured agents are preinstalled before axrecipe starts.",
+    ),
+    legacyOpencodePath,
+    structuredOpencodePath,
+  );
+  const withoutLegacyPaths = replaceExactlyOnce(
+    withoutLegacyTools,
+    legacyNpmPath,
+    "# Structured agents are preinstalled on the trusted PATH.",
+  );
+  const withoutLegacyRouting = replaceExactlyOnce(
+    replaceExactlyOnce(
+      withoutLegacyPaths,
+      profileResolve,
+      "if false; then\n  # Profile resolution completed before the clean boundary.",
+    ),
+    legacyProvider,
+    "# Provider routing is bound into the axrun v5 credential handoff.",
+  );
+  const preparedGenericRunner = replaceExactlyOnce(
+    withoutLegacyRouting,
+    legacyInvocation,
+    preparationInvocation,
+  );
+  const withWrapperMarkers = replaceExactlyOnce(
+    replaceExactlyOnce(
+      preparedGenericRunner,
+      "exec /tmp/axreview-bin/claude-real",
+      "exec __AXGITHUB_CLAUDE_REAL__",
+    ),
+    "exec /tmp/axreview-bin/codex-real",
+    "exec __AXGITHUB_CODEX_REAL__",
+  );
+  const expectedTemporaryPathCount = 10;
+  const temporaryPathCount = withWrapperMarkers.match(/\/tmp\//gu)?.length ?? 0;
+  if (temporaryPathCount !== expectedTemporaryPathCount) {
+    throw new Error(
+      `structured review runner expected ${expectedTemporaryPathCount} temporary paths, found ${temporaryPathCount}`,
+    );
+  }
+  const tempScopedRunner = withWrapperMarkers.replace(/\/tmp\//gu, () => "$TMPDIR/");
+  const structuredGenericRunner = replaceExactlyOnce(
+    replaceExactlyOnce(
+      replaceExactlyOnce(
+        tempScopedRunner,
+        '> $TMPDIR/prompt.md',
+        '> "$TMPDIR/prompt.md"',
+      ),
+      "cat > $TMPDIR/substitute-prompt.cjs",
+      'cat > "$TMPDIR/substitute-prompt.cjs"',
+    ),
+    "node $TMPDIR/substitute-prompt.cjs $TMPDIR/prompt.md",
+    'node "$TMPDIR/substitute-prompt.cjs" "$TMPDIR/prompt.md"',
+  );
+  const marker = "__AXGITHUB_GENERIC_REVIEW_RUNNER__";
+  if (structuredRunnerTemplate.split(marker).length !== 2) {
+    throw new Error(`structured-forgejo-runner.sh must contain exactly one ${marker} marker`);
+  }
+  const delimiter = "AXGITHUB_GENERIC_REVIEW_RUNNER";
+  if (new RegExp(`^${delimiter}$`, "mu").test(structuredGenericRunner)) {
+    throw new Error(`structured generic runner must not contain the ${delimiter} delimiter`);
+  }
+  return structuredRunnerTemplate.replace(marker, () => structuredGenericRunner);
+}
+
+const structuredForgejoRunner = buildStructuredForgejoRunner();
+
+function buildStructuredForgejoSettings(
+  recipe: Recipe,
+  promptResource: string,
+) {
+  const env: Record<string, string> = {
+    AXRUN_ALLOW: ALLOW,
+    ...recipe.env,
+    PROMPT_TEXT: `{{resource:${promptResource}}}`,
+    AXCREDS,
+  };
+  return { command: "sh", args: ["-c", structuredForgejoRunner], env };
+}
+
 const GITHUB_RECIPE_DESCRIPTION =
   "GitHub PR review slot. Posts via the GitHub Reviews API. Seeded from axgithub/scripts/seed-review-recipes.ts.";
 const FORGEJO_RECIPE_DESCRIPTION =
   "Forgejo PR review slot. Posts via the Forgejo Reviews API. Seeded from axgithub/scripts/seed-review-recipes.ts.";
+const STRUCTURED_FORGEJO_RECIPE_DESCRIPTION =
+  "Isolated Forgejo review generator. Produces a versioned JSON handoff for axrecipe v9 validation; a separate trusted job posts it. Seeded from axgithub/scripts/seed-review-recipes.ts.";
 
 async function api(method: string, path: string, body?: unknown): Promise<Response> {
   return fetch(`${base}${path}`, {
@@ -327,45 +585,80 @@ async function listStaleRecipes(ids: string[]): Promise<string[]> {
   return stale;
 }
 
-for (const r of resources) {
-  await upsertResource(r);
-}
-for (const recipe of githubCodeRecipes) {
-  await upsertRecipe(
-    recipe.recipeId,
-    recipe.name,
-    GITHUB_RECIPE_DESCRIPTION,
-    buildSettings(recipe, GITHUB_CODE_PROMPT_RESOURCE, true),
-  );
-}
-for (const recipe of githubApproachRecipes) {
-  await upsertRecipe(
-    recipe.recipeId,
-    recipe.name,
-    GITHUB_RECIPE_DESCRIPTION,
-    buildSettings(recipe, GITHUB_APPROACH_PROMPT_RESOURCE, false),
-  );
-}
-for (const recipe of forgejoCodeRecipes) {
-  await upsertRecipe(
-    recipe.recipeId,
-    recipe.name,
-    FORGEJO_RECIPE_DESCRIPTION,
-    buildSettings(recipe, FORGEJO_CODE_PROMPT_RESOURCE, true),
-  );
-}
-for (const recipe of forgejoApproachRecipes) {
-  await upsertRecipe(
-    recipe.recipeId,
-    recipe.name,
-    FORGEJO_RECIPE_DESCRIPTION,
-    buildSettings(recipe, FORGEJO_APPROACH_PROMPT_RESOURCE, false),
-  );
+async function seedLegacyForgejoDirectPostRecipes(): Promise<void> {
+  for (const resource of legacyForgejoDirectPostResources) {
+    await upsertResource(resource);
+  }
+  for (const recipe of forgejoCodeRecipes) {
+    await upsertRecipe(
+      recipe.recipeId,
+      recipe.name,
+      FORGEJO_RECIPE_DESCRIPTION,
+      buildSettings(recipe, FORGEJO_CODE_PROMPT_RESOURCE, true),
+    );
+  }
+  for (const recipe of forgejoApproachRecipes) {
+    await upsertRecipe(
+      recipe.recipeId,
+      recipe.name,
+      FORGEJO_RECIPE_DESCRIPTION,
+      buildSettings(recipe, FORGEJO_APPROACH_PROMPT_RESOURCE, false),
+    );
+  }
 }
 
-const stale = await listStaleRecipes(staleRecipeIds);
-if (stale.length > 0) {
-  console.log(`stale, descope + prune manually: ${stale.join(", ")}`);
+async function main(): Promise<void> {
+  if (!apiKey) {
+    console.error("AXRECIPE_API_KEY is required (admin/manage-scoped key).");
+    process.exitCode = 1;
+    return;
+  }
+  for (const r of resources) {
+    await upsertResource(r);
+  }
+  for (const recipe of githubCodeRecipes) {
+    await upsertRecipe(
+      recipe.recipeId,
+      recipe.name,
+      GITHUB_RECIPE_DESCRIPTION,
+      buildSettings(recipe, GITHUB_CODE_PROMPT_RESOURCE, true),
+    );
+  }
+  for (const recipe of githubApproachRecipes) {
+    await upsertRecipe(
+      recipe.recipeId,
+      recipe.name,
+      GITHUB_RECIPE_DESCRIPTION,
+      buildSettings(recipe, GITHUB_APPROACH_PROMPT_RESOURCE, false),
+    );
+  }
+  // Temporary rollout bridge. Delete this call with its helper/data at the
+  // OIDC cutover; the structured slots below are the only durable Forgejo set.
+  await seedLegacyForgejoDirectPostRecipes();
+  for (const recipe of structuredForgejoRecipes) {
+    await upsertRecipe(
+      recipe.recipeId,
+      recipe.name,
+      STRUCTURED_FORGEJO_RECIPE_DESCRIPTION,
+      buildStructuredForgejoSettings(recipe, recipe.promptResource),
+    );
+  }
+
+  const stale = await listStaleRecipes(staleRecipeIds);
+  if (stale.length > 0) {
+    console.log(`stale, descope + prune manually: ${stale.join(", ")}`);
+  }
+
+  console.log("Done.");
 }
 
-console.log("Done.");
+function isMainModule(): boolean {
+  const entry = process.argv[1];
+  return entry !== undefined && realpathSync(entry) === fileURLToPath(import.meta.url);
+}
+
+if (isMainModule()) {
+  await main();
+}
+
+export { buildStructuredForgejoSettings, structuredForgejoRecipes };
