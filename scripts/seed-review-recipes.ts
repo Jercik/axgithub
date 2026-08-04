@@ -282,6 +282,10 @@ const structuredForgejoRecipes: Array<Recipe & { promptResource: string }> = [
 // exist, so the seeder never deletes — it reports which of these are still
 // live so an operator can descope the execute keys and prune manually.
 const staleRecipeIds = [
+  // Transitional names from the first Luna branch revision. They are kept
+  // here so an earlier operator seed is reported for descoping and pruning.
+  "pr-review-code",
+  "forgejo-review-code",
   "pr-review-code-1",
   "pr-review-code-2",
   "pr-review-approach-1",
