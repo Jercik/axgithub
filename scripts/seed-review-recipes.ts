@@ -106,7 +106,7 @@ interface Recipe {
 }
 
 // The clean token forms ({{vault:...}} / {{resource:...}}) — never plaintext
-// secrets baked into env. Profile recipes (smart, fable) carry no
+// secrets baked into env. Profile recipes (smart, fable, luna) carry no
 // agent/model/credential: axrun resolves the lane per run through axcredrouter
 // (profile mode needs both AXCREDROUTER to resolve and AXCREDS to fetch the
 // resolved credential).
@@ -125,11 +125,21 @@ const FABLE_ENV: Record<string, string> = {
   AXCREDROUTER,
 };
 
+const LUNA_ENV: Record<string, string> = {
+  REVIEW_PROFILE: "codex-luna-review",
+  AXCREDROUTER,
+};
+
 const githubCodeRecipes: Recipe[] = [
   {
     recipeId: "pr-review-code-smart",
     name: "PR code review (smart)",
     env: { ...SMART_ENV },
+  },
+  {
+    recipeId: "pr-review-code-luna",
+    name: "PR code review (Codex Luna)",
+    env: { ...LUNA_ENV },
   },
   {
     recipeId: "pr-review-code-fable",
@@ -260,12 +270,22 @@ const structuredForgejoRecipes: Array<Recipe & { promptResource: string }> = [
     env: { ...SMART_ENV },
     promptResource: STRUCTURED_FORGEJO_CODE_PROMPT_RESOURCE,
   },
+  {
+    recipeId: "forgejo-review-code-luna",
+    name: "Structured Forgejo code review (Codex Luna)",
+    env: { ...LUNA_ENV },
+    promptResource: STRUCTURED_FORGEJO_CODE_PROMPT_RESOURCE,
+  },
 ];
 
 // Replaced by the smart set. DELETE /recipes/:id responds 409 when runs
 // exist, so the seeder never deletes — it reports which of these are still
 // live so an operator can descope the execute keys and prune manually.
 const staleRecipeIds = [
+  // Transitional names from the first Luna branch revision. They are kept
+  // here so an earlier operator seed is reported for descoping and pruning.
+  "pr-review-code",
+  "forgejo-review-code",
   "pr-review-code-1",
   "pr-review-code-2",
   "pr-review-approach-1",
