@@ -106,7 +106,7 @@ interface Recipe {
 }
 
 // The clean token forms ({{vault:...}} / {{resource:...}}) — never plaintext
-// secrets baked into env. Profile recipes (smart, fable) carry no
+// secrets baked into env. Profile recipes (smart, fable, luna) carry no
 // agent/model/credential: axrun resolves the lane per run through axcredrouter
 // (profile mode needs both AXCREDROUTER to resolve and AXCREDS to fetch the
 // resolved credential).
@@ -125,11 +125,21 @@ const FABLE_ENV: Record<string, string> = {
   AXCREDROUTER,
 };
 
+const LUNA_ENV: Record<string, string> = {
+  REVIEW_PROFILE: "codex-luna-review",
+  AXCREDROUTER,
+};
+
 const githubCodeRecipes: Recipe[] = [
   {
     recipeId: "pr-review-code-smart",
     name: "PR code review (smart)",
     env: { ...SMART_ENV },
+  },
+  {
+    recipeId: "pr-review-code",
+    name: "PR code review (Codex Luna)",
+    env: { ...LUNA_ENV },
   },
   {
     recipeId: "pr-review-code-fable",
@@ -258,6 +268,12 @@ const structuredForgejoRecipes: Array<Recipe & { promptResource: string }> = [
     recipeId: "forgejo-review-code-smart-2",
     name: "Structured Forgejo code review (smart draw 2)",
     env: { ...SMART_ENV },
+    promptResource: STRUCTURED_FORGEJO_CODE_PROMPT_RESOURCE,
+  },
+  {
+    recipeId: "forgejo-review-code",
+    name: "Structured Forgejo code review (Codex Luna)",
+    env: { ...LUNA_ENV },
     promptResource: STRUCTURED_FORGEJO_CODE_PROMPT_RESOURCE,
   },
 ];

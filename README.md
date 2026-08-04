@@ -62,7 +62,8 @@ jobs:
       label: code
       recipes: >-
         [{"recipe":"pr-review-code-smart","name":"code smart 1"},
-         {"recipe":"pr-review-code-smart","name":"code smart 2"}]
+         {"recipe":"pr-review-code-smart","name":"code smart 2"},
+         {"recipe":"pr-review-code","name":"code (Codex Luna)"}]
       pr_number: ${{ github.event.pull_request.number || inputs.pr_number }}
     secrets:
       NPM_TOKEN: ${{ secrets.FORGEJO_NPM_TOKEN }}
@@ -113,16 +114,18 @@ recipe for each enabled review slot:
 - `forgejo-review-approach-3`
 - `forgejo-review-code-smart-1`
 - `forgejo-review-code-smart-2`
+- `forgejo-review-code`
 
 These replace the existing six-recipe Forgejo direct-post roster at the OIDC
-cutover; the new roster deliberately has five slots and is not a one-for-one
-rename. The fable and Gemini slots are retired, while each smart lane gets two
-independent draws. During rollout the seeder keeps the legacy roster in the
+cutover; the new roster has six slots and is not a one-for-one rename. The fable
+and Gemini slots are retired, while each smart lane gets two independent draws
+and the dedicated code slot resolves the Codex Luna profile. During rollout the
+seeder keeps the legacy roster in the
 explicitly isolated `seedLegacyForgejoDirectPostRecipes` path so current
 workflows continue to run; there is no runtime fallback between the two sets.
 The structured slots are the OIDC migration contract shared with `axrecipe`,
 `j4k/cluster`, and `j4k/align`.
-The five slots share two versioned resources:
+The six slots share two versioned resources:
 
 - `forgejo-review-approach-v1-prompt`
 - `forgejo-review-code-v1-prompt`
@@ -194,7 +197,7 @@ descriptor;
 `REVIEW_PROVIDER` is solely a legacy direct-mode input and must not be
 reintroduced here.
 
-The consuming workflow must supply every agent reachable through the five
+The consuming workflow must supply every agent reachable through the six
 slots before it starts the secret-bearing axrecipe process. Installation cannot
 run earlier in the same persistent UID/process/mount namespace: a package
 lifecycle script could daemonize, wait for the later handoff path, and steal

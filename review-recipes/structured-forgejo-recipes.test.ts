@@ -45,7 +45,7 @@ test("structured recipe settings contain only vetted outer-process fields", () =
   }
 });
 
-test("five stable slots share two versioned prompt resources", () => {
+test("six stable slots share two versioned prompt resources", () => {
   assert.deepEqual(
     [...new Set(structuredForgejoRecipes.map((recipe) => recipe.promptResource))].sort(),
     EXPECTED_PROMPT_RESOURCES,
@@ -58,8 +58,17 @@ test("five stable slots share two versioned prompt resources", () => {
       "forgejo-review-approach-3",
       "forgejo-review-code-smart-1",
       "forgejo-review-code-smart-2",
+      "forgejo-review-code",
     ],
   );
+});
+
+test("the Luna code slot uses its dedicated routing profile", () => {
+  const recipe = structuredForgejoRecipes.find((entry) => entry.recipeId === "forgejo-review-code");
+  assert.deepEqual(recipe?.env, {
+    REVIEW_PROFILE: "codex-luna-review",
+    AXCREDROUTER: "{{vault:ci-axcredrouter-config}}",
+  });
 });
 
 test("both prompts encode the exact context and result v1 contracts", () => {
