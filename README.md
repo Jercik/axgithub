@@ -63,7 +63,7 @@ jobs:
       recipes: >-
         [{"recipe":"pr-review-code-smart","name":"code smart 1"},
          {"recipe":"pr-review-code-smart","name":"code smart 2"},
-         {"recipe":"pr-review-code","name":"code (Codex Luna)"}]
+         {"recipe":"pr-review-code-luna","name":"code (Codex Luna)"}]
       pr_number: ${{ github.event.pull_request.number || inputs.pr_number }}
     secrets:
       NPM_TOKEN: ${{ secrets.FORGEJO_NPM_TOKEN }}
@@ -114,7 +114,7 @@ recipe for each enabled review slot:
 - `forgejo-review-approach-3`
 - `forgejo-review-code-smart-1`
 - `forgejo-review-code-smart-2`
-- `forgejo-review-code`
+- `forgejo-review-code-luna`
 
 These replace the existing six-recipe Forgejo direct-post roster at the OIDC
 cutover; the new roster has six slots and is not a one-for-one rename. The fable

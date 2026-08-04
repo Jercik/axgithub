@@ -137,7 +137,7 @@ const githubCodeRecipes: Recipe[] = [
     env: { ...SMART_ENV },
   },
   {
-    recipeId: "pr-review-code",
+    recipeId: "pr-review-code-luna",
     name: "PR code review (Codex Luna)",
     env: { ...LUNA_ENV },
   },
@@ -271,7 +271,7 @@ const structuredForgejoRecipes: Array<Recipe & { promptResource: string }> = [
     promptResource: STRUCTURED_FORGEJO_CODE_PROMPT_RESOURCE,
   },
   {
-    recipeId: "forgejo-review-code",
+    recipeId: "forgejo-review-code-luna",
     name: "Structured Forgejo code review (Codex Luna)",
     env: { ...LUNA_ENV },
     promptResource: STRUCTURED_FORGEJO_CODE_PROMPT_RESOURCE,

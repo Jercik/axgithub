@@ -58,13 +58,13 @@ test("six stable slots share two versioned prompt resources", () => {
       "forgejo-review-approach-3",
       "forgejo-review-code-smart-1",
       "forgejo-review-code-smart-2",
-      "forgejo-review-code",
+      "forgejo-review-code-luna",
     ],
   );
 });
 
 test("the Luna code slot uses its dedicated routing profile", () => {
-  const recipe = structuredForgejoRecipes.find((entry) => entry.recipeId === "forgejo-review-code");
+  const recipe = structuredForgejoRecipes.find((entry) => entry.recipeId === "forgejo-review-code-luna");
   assert.deepEqual(recipe?.env, {
     REVIEW_PROFILE: "codex-luna-review",
     AXCREDROUTER: "{{vault:ci-axcredrouter-config}}",
