@@ -155,6 +155,11 @@ const githubApproachRecipes: Recipe[] = [
     env: { ...SMART_ENV },
   },
   {
+    recipeId: "pr-review-approach-luna",
+    name: "PR approach review (Codex Luna)",
+    env: { ...LUNA_ENV },
+  },
+  {
     recipeId: "pr-review-approach-fable",
     name: "PR approach review (fable)",
     env: { ...FABLE_ENV },
@@ -242,20 +247,21 @@ const structuredForgejoRecipes: Array<Recipe & { promptResource: string }> = [
     promptResource: STRUCTURED_FORGEJO_APPROACH_PROMPT_RESOURCE,
   },
   {
-    recipeId: "forgejo-review-approach-smart-2",
-    name: "Structured Forgejo approach review (smart draw 2)",
-    env: { ...SMART_ENV },
+    recipeId: "forgejo-review-approach-luna-1",
+    name: "Structured Forgejo approach review (Codex Luna draw 1)",
+    env: { ...LUNA_ENV },
     promptResource: STRUCTURED_FORGEJO_APPROACH_PROMPT_RESOURCE,
   },
   {
-    recipeId: "forgejo-review-approach-3",
-    name: "Structured Forgejo approach review (approach 3)",
-    env: {
-      REVIEW_AGENT: "opencode",
-      REVIEW_MODEL: "GLM-5.2",
-      REVIEW_DISPLAY_NAME: "Approach Review 3 (OpenCode Wafer)",
-      REVIEW_VAULT_CREDENTIAL: "ci-opencode-wafer-credentials",
-    },
+    recipeId: "forgejo-review-approach-luna-2",
+    name: "Structured Forgejo approach review (Codex Luna draw 2)",
+    env: { ...LUNA_ENV },
+    promptResource: STRUCTURED_FORGEJO_APPROACH_PROMPT_RESOURCE,
+  },
+  {
+    recipeId: "forgejo-review-approach-luna-3",
+    name: "Structured Forgejo approach review (Codex Luna draw 3)",
+    env: { ...LUNA_ENV },
     promptResource: STRUCTURED_FORGEJO_APPROACH_PROMPT_RESOURCE,
   },
   {
@@ -265,14 +271,20 @@ const structuredForgejoRecipes: Array<Recipe & { promptResource: string }> = [
     promptResource: STRUCTURED_FORGEJO_CODE_PROMPT_RESOURCE,
   },
   {
-    recipeId: "forgejo-review-code-smart-2",
-    name: "Structured Forgejo code review (smart draw 2)",
-    env: { ...SMART_ENV },
+    recipeId: "forgejo-review-code-luna",
+    name: "Structured Forgejo code review (Codex Luna draw 1)",
+    env: { ...LUNA_ENV },
     promptResource: STRUCTURED_FORGEJO_CODE_PROMPT_RESOURCE,
   },
   {
-    recipeId: "forgejo-review-code-luna",
-    name: "Structured Forgejo code review (Codex Luna)",
+    recipeId: "forgejo-review-code-luna-2",
+    name: "Structured Forgejo code review (Codex Luna draw 2)",
+    env: { ...LUNA_ENV },
+    promptResource: STRUCTURED_FORGEJO_CODE_PROMPT_RESOURCE,
+  },
+  {
+    recipeId: "forgejo-review-code-luna-3",
+    name: "Structured Forgejo code review (Codex Luna draw 3)",
     env: { ...LUNA_ENV },
     promptResource: STRUCTURED_FORGEJO_CODE_PROMPT_RESOURCE,
   },
@@ -294,6 +306,9 @@ const staleRecipeIds = [
   "pr-review-code-forgejo-2",
   "pr-review-approach-forgejo-1",
   "pr-review-approach-forgejo-4",
+  "forgejo-review-approach-smart-2",
+  "forgejo-review-approach-3",
+  "forgejo-review-code-smart-2",
 ];
 
 function buildSettings(recipe: Recipe, promptResource: string, withPerplexity: boolean) {

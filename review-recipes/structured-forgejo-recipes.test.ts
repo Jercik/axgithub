@@ -45,7 +45,7 @@ test("structured recipe settings contain only vetted outer-process fields", () =
   }
 });
 
-test("six stable slots share two versioned prompt resources", () => {
+test("eight stable slots share two versioned prompt resources", () => {
   assert.deepEqual(
     [...new Set(structuredForgejoRecipes.map((recipe) => recipe.promptResource))].sort(),
     EXPECTED_PROMPT_RESOURCES,
@@ -54,21 +54,24 @@ test("six stable slots share two versioned prompt resources", () => {
     structuredForgejoRecipes.map((recipe) => recipe.recipeId),
     [
       "forgejo-review-approach-smart-1",
-      "forgejo-review-approach-smart-2",
-      "forgejo-review-approach-3",
+      "forgejo-review-approach-luna-1",
+      "forgejo-review-approach-luna-2",
+      "forgejo-review-approach-luna-3",
       "forgejo-review-code-smart-1",
-      "forgejo-review-code-smart-2",
       "forgejo-review-code-luna",
+      "forgejo-review-code-luna-2",
+      "forgejo-review-code-luna-3",
     ],
   );
 });
 
-test("the Luna code slot uses its dedicated routing profile", () => {
-  const recipe = structuredForgejoRecipes.find((entry) => entry.recipeId === "forgejo-review-code-luna");
-  assert.deepEqual(recipe?.env, {
-    REVIEW_PROFILE: "codex-luna-review",
-    AXCREDROUTER: "{{vault:ci-axcredrouter-config}}",
-  });
+test("all Luna slots use the dedicated routing profile", () => {
+  for (const recipe of structuredForgejoRecipes.filter((entry) => entry.recipeId.includes("luna"))) {
+    assert.deepEqual(recipe.env, {
+      REVIEW_PROFILE: "codex-luna-review",
+      AXCREDROUTER: "{{vault:ci-axcredrouter-config}}",
+    });
+  }
 });
 
 test("both prompts encode the exact context and result v1 contracts", () => {
@@ -312,13 +315,6 @@ fs.writeFileSync(process.env.REVIEW_OUTPUT_PATH, JSON.stringify({ schemaVersion:
           /__AXGITHUB_CLAUDE_REAL__/u,
           recipe.recipeId,
         );
-      }
-      if (recipe.recipeId === "forgejo-review-approach-3") {
-        const arguments_ = JSON.parse(
-          readFileSync(`${outputPath}.axrun-argv.json`, "utf8"),
-        ) as string[];
-        assert.equal(arguments_[arguments_.indexOf("--agent") + 1], "opencode");
-        assert.equal(arguments_[arguments_.indexOf("--model") + 1], "GLM-5.2");
       }
     }
   } finally {

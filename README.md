@@ -61,9 +61,10 @@ jobs:
     with:
       label: code
       recipes: >-
-        [{"recipe":"pr-review-code-smart","name":"code smart 1"},
-         {"recipe":"pr-review-code-smart","name":"code smart 2"},
-         {"recipe":"pr-review-code-luna","name":"Codex Luna"}]
+        [{"recipe":"pr-review-code-smart","name":"code smart"},
+         {"recipe":"pr-review-code-luna","name":"Codex Luna 1"},
+         {"recipe":"pr-review-code-luna","name":"Codex Luna 2"},
+         {"recipe":"pr-review-code-luna","name":"Codex Luna 3"}]
       pr_number: ${{ github.event.pull_request.number || inputs.pr_number }}
     secrets:
       NPM_TOKEN: ${{ secrets.FORGEJO_NPM_TOKEN }}
@@ -110,22 +111,24 @@ public attribution uses the display name.
 recipe for each enabled review slot:
 
 - `forgejo-review-approach-smart-1`
-- `forgejo-review-approach-smart-2`
-- `forgejo-review-approach-3`
+- `forgejo-review-approach-luna-1`
+- `forgejo-review-approach-luna-2`
+- `forgejo-review-approach-luna-3`
 - `forgejo-review-code-smart-1`
-- `forgejo-review-code-smart-2`
 - `forgejo-review-code-luna`
+- `forgejo-review-code-luna-2`
+- `forgejo-review-code-luna-3`
 
 These replace the existing six-recipe Forgejo direct-post roster at the OIDC
-cutover; the new roster has six slots and is not a one-for-one rename. The fable
-and Gemini slots are retired, while each smart lane gets two independent draws
-and the code lane adds a third slot pinned to the Codex Luna profile. During rollout the
+cutover; the new roster has eight slots and is not a one-for-one rename. The fable,
+Gemini, and OpenCode approach slots are retired, while each lane keeps one smart
+draw and adds three independent draws pinned to the Codex Luna profile. During rollout the
 seeder keeps the legacy roster in the
 explicitly isolated `seedLegacyForgejoDirectPostRecipes` path so current
 workflows continue to run; there is no runtime fallback between the two sets.
 The structured slots are the OIDC migration contract shared with `axrecipe`,
 `j4k/cluster`, and `j4k/align`.
-The six slots share two versioned resources:
+The eight slots share two versioned resources:
 
 - `forgejo-review-approach-v1-prompt`
 - `forgejo-review-code-v1-prompt`
