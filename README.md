@@ -63,7 +63,7 @@ jobs:
       recipes: >-
         [{"recipe":"pr-review-code-smart","name":"code smart 1"},
          {"recipe":"pr-review-code-smart","name":"code smart 2"},
-         {"recipe":"pr-review-code-luna","name":"code (Codex Luna)"}]
+         {"recipe":"pr-review-code-luna","name":"Codex Luna"}]
       pr_number: ${{ github.event.pull_request.number || inputs.pr_number }}
     secrets:
       NPM_TOKEN: ${{ secrets.FORGEJO_NPM_TOKEN }}
@@ -119,7 +119,7 @@ recipe for each enabled review slot:
 These replace the existing six-recipe Forgejo direct-post roster at the OIDC
 cutover; the new roster has six slots and is not a one-for-one rename. The fable
 and Gemini slots are retired, while each smart lane gets two independent draws
-and the dedicated code slot resolves the Codex Luna profile. During rollout the
+and the code lane adds a third slot pinned to the Codex Luna profile. During rollout the
 seeder keeps the legacy roster in the
 explicitly isolated `seedLegacyForgejoDirectPostRecipes` path so current
 workflows continue to run; there is no runtime fallback between the two sets.
@@ -198,7 +198,8 @@ descriptor;
 reintroduced here.
 
 The consuming workflow must supply every agent reachable through the six
-slots before it starts the secret-bearing axrecipe process. Installation cannot
+slots—currently Claude, Codex, and OpenCode—before it starts the secret-bearing
+axrecipe process. Installation cannot
 run earlier in the same persistent UID/process/mount namespace: a package
 lifecycle script could daemonize, wait for the later handoff path, and steal
 the credential. Use an immutable runner image or install in a disposable job or
@@ -226,7 +227,10 @@ job. The poster independently binds the accepted result to the
 OIDC-authenticated repository/PR/head/slot, re-fetches the current diff,
 validates each path and position, and posts exactly once.
 
-During the rollout overlap, pre-fetch `@j4k/axrun@5` for both rosters. Version 5
+Before enabling `pr-review-code-luna` or `forgejo-review-code-luna`, run the
+seeder and add both IDs to the cluster-managed execute-key scope; the workflow
+caller may dispatch a slot only after the recipe exists and the key authorizes
+it. During the rollout overlap, pre-fetch `@j4k/axrun@5` for both rosters. Version 5
 retains the legacy direct-mode `--vault-credential` and `--provider` flags, so
 the direct-post recipes can use the same binary; their `2.12.0` npm fallback is
 not a workflow installation path. Structured recipes additionally require the
