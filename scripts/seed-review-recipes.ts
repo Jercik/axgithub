@@ -115,18 +115,18 @@ const AXCREDROUTER = "{{vault:ci-axcredrouter-config}}";
 const PERPLEXITY = "{{vault:ci-perplexity-api-key}}";
 const ALLOW = "read,glob,grep,bash:*";
 
-const SMART_ENV: Record<string, string> = {
-  REVIEW_PROFILE: "smart-pr-review",
+const PREMIUM_ENV: Record<string, string> = {
+  REVIEW_PROFILE: "premium",
   AXCREDROUTER,
 };
 
 const FABLE_ENV: Record<string, string> = {
-  REVIEW_PROFILE: "claude-fable-review",
+  REVIEW_PROFILE: "fable",
   AXCREDROUTER,
 };
 
 const LUNA_ENV: Record<string, string> = {
-  REVIEW_PROFILE: "codex-luna-review",
+  REVIEW_PROFILE: "luna",
   AXCREDROUTER,
 };
 
@@ -134,7 +134,7 @@ const githubCodeRecipes: Recipe[] = [
   {
     recipeId: "pr-review-code-smart",
     name: "PR code review (smart)",
-    env: { ...SMART_ENV },
+    env: { ...PREMIUM_ENV },
   },
   {
     recipeId: "pr-review-code-luna",
@@ -152,7 +152,7 @@ const githubApproachRecipes: Recipe[] = [
   {
     recipeId: "pr-review-approach-smart",
     name: "PR approach review (smart)",
-    env: { ...SMART_ENV },
+    env: { ...PREMIUM_ENV },
   },
   {
     recipeId: "pr-review-approach-luna",
@@ -192,7 +192,7 @@ const forgejoCodeRecipes: Recipe[] = [
   {
     recipeId: "pr-review-code-forgejo-smart",
     name: "PR code review (smart, Forgejo)",
-    env: { ...SMART_ENV },
+    env: { ...PREMIUM_ENV },
   },
   {
     recipeId: "pr-review-code-forgejo-fable",
@@ -205,7 +205,7 @@ const forgejoApproachRecipes: Recipe[] = [
   {
     recipeId: "pr-review-approach-forgejo-smart",
     name: "PR approach review (smart, Forgejo)",
-    env: { ...SMART_ENV },
+    env: { ...PREMIUM_ENV },
   },
   {
     recipeId: "pr-review-approach-forgejo-fable",
@@ -243,7 +243,7 @@ const structuredForgejoRecipes: Array<Recipe & { promptResource: string }> = [
   {
     recipeId: "forgejo-review-approach-smart-1",
     name: "Structured Forgejo approach review (smart draw 1)",
-    env: { ...SMART_ENV },
+    env: { ...PREMIUM_ENV },
     promptResource: STRUCTURED_FORGEJO_APPROACH_PROMPT_RESOURCE,
   },
   {
@@ -267,7 +267,7 @@ const structuredForgejoRecipes: Array<Recipe & { promptResource: string }> = [
   {
     recipeId: "forgejo-review-code-smart-1",
     name: "Structured Forgejo code review (smart draw 1)",
-    env: { ...SMART_ENV },
+    env: { ...PREMIUM_ENV },
     promptResource: STRUCTURED_FORGEJO_CODE_PROMPT_RESOURCE,
   },
   {

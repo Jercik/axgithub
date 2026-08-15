@@ -80,7 +80,7 @@ described below. The generic runner has two modes, selected by whether
 `REVIEW_PROFILE` is set in the recipe env.
 
 **Profile mode (resolve → install → run).** When `REVIEW_PROFILE` names an
-[axcredrouter](https://credrouter.axkit.dev) profile (e.g. `smart-pr-review`),
+[axcredrouter](https://credrouter.axkit.dev) profile (e.g. `premium`),
 the runner first calls `axrun resolve --profile "$REVIEW_PROFILE" --json`
 (configured via the `AXCREDROUTER` env JSON, which recipes inject as
 `{{vault:ci-axcredrouter-config}}`). The resolve response picks the lane —
