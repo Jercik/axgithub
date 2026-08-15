@@ -65,13 +65,23 @@ test("eight stable slots share two versioned prompt resources", () => {
   );
 });
 
-test("all Luna slots use the dedicated routing profile", () => {
-  for (const recipe of structuredForgejoRecipes.filter((entry) => entry.recipeId.includes("luna"))) {
-    assert.deepEqual(recipe.env, {
-      REVIEW_PROFILE: "codex-luna-review",
-      AXCREDROUTER: "{{vault:ci-axcredrouter-config}}",
-    });
-  }
+test("structured slots use generic routing profiles", () => {
+  assert.deepEqual(
+    structuredForgejoRecipes.map((recipe) => recipe.env.REVIEW_PROFILE),
+    ["premium", "luna", "luna", "luna", "premium", "luna", "luna", "luna"],
+  );
+  assert.equal(
+    structuredForgejoRecipes.some((recipe) => recipe.env.REVIEW_PROFILE === "smart-pr-review"),
+    false,
+  );
+  assert.equal(
+    structuredForgejoRecipes.some((recipe) => recipe.env.REVIEW_PROFILE === "claude-fable-review"),
+    false,
+  );
+  assert.equal(
+    structuredForgejoRecipes.some((recipe) => recipe.env.REVIEW_PROFILE === "codex-luna-review"),
+    false,
+  );
 });
 
 test("both prompts encode the exact context and result v1 contracts", () => {
