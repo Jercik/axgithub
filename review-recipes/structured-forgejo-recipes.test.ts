@@ -16,6 +16,7 @@ import { test } from "node:test";
 
 import {
   buildStructuredForgejoSettings,
+  profileBackedReviewRecipes,
   structuredForgejoRecipes,
 } from "../scripts/seed-review-recipes.ts";
 
@@ -65,22 +66,66 @@ test("eight stable slots share two versioned prompt resources", () => {
   );
 });
 
-test("structured slots use generic routing profiles", () => {
+test("all profile-backed review recipes use the Stage 1 stable profiles", () => {
+  assert.deepEqual(
+    profileBackedReviewRecipes.map((recipe) => [recipe.recipeId, recipe.env.REVIEW_PROFILE]),
+    [
+      ["pr-review-code-smart", "premium"],
+      ["pr-review-code-luna", "economical"],
+      ["pr-review-code-fable", "premium"],
+      ["pr-review-approach-smart", "premium"],
+      ["pr-review-approach-luna", "economical"],
+      ["pr-review-approach-fable", "premium"],
+      ["pr-review-code-forgejo-smart", "premium"],
+      ["pr-review-code-forgejo-fable", "premium"],
+      ["pr-review-approach-forgejo-smart", "premium"],
+      ["pr-review-approach-forgejo-fable", "premium"],
+      ["forgejo-review-approach-smart-1", "premium"],
+      ["forgejo-review-approach-luna-1", "economical"],
+      ["forgejo-review-approach-luna-2", "economical"],
+      ["forgejo-review-approach-luna-3", "economical"],
+      ["forgejo-review-code-smart-1", "premium"],
+      ["forgejo-review-code-luna", "economical"],
+      ["forgejo-review-code-luna-2", "economical"],
+      ["forgejo-review-code-luna-3", "economical"],
+    ],
+  );
+  assert.equal(profileBackedReviewRecipes.length, 18);
+  assert.equal(
+    profileBackedReviewRecipes.some((recipe) => recipe.env.REVIEW_PROFILE === "fable"),
+    false,
+  );
+  assert.equal(
+    profileBackedReviewRecipes.some((recipe) => recipe.env.REVIEW_PROFILE === "luna"),
+    false,
+  );
+  assert.equal(
+    profileBackedReviewRecipes.some((recipe) => recipe.env.REVIEW_PROFILE === "smart-pr-review"),
+    false,
+  );
+  assert.equal(
+    profileBackedReviewRecipes.some((recipe) => recipe.env.REVIEW_PROFILE === "claude-fable-review"),
+    false,
+  );
+  assert.equal(
+    profileBackedReviewRecipes.some((recipe) => recipe.env.REVIEW_PROFILE === "codex-luna-review"),
+    false,
+  );
+});
+
+test("structured slots preserve the two premium and six economical fanout", () => {
   assert.deepEqual(
     structuredForgejoRecipes.map((recipe) => recipe.env.REVIEW_PROFILE),
-    ["premium", "luna", "luna", "luna", "premium", "luna", "luna", "luna"],
-  );
-  assert.equal(
-    structuredForgejoRecipes.some((recipe) => recipe.env.REVIEW_PROFILE === "smart-pr-review"),
-    false,
-  );
-  assert.equal(
-    structuredForgejoRecipes.some((recipe) => recipe.env.REVIEW_PROFILE === "claude-fable-review"),
-    false,
-  );
-  assert.equal(
-    structuredForgejoRecipes.some((recipe) => recipe.env.REVIEW_PROFILE === "codex-luna-review"),
-    false,
+    [
+      "premium",
+      "economical",
+      "economical",
+      "economical",
+      "premium",
+      "economical",
+      "economical",
+      "economical",
+    ],
   );
 });
 

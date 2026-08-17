@@ -106,7 +106,7 @@ interface Recipe {
 }
 
 // The clean token forms ({{vault:...}} / {{resource:...}}) — never plaintext
-// secrets baked into env. Profile recipes (smart, fable, luna) carry no
+// secrets baked into env. Profile-backed recipes carry no
 // agent/model/credential: axrun resolves the lane per run through axcredrouter
 // (profile mode needs both AXCREDROUTER to resolve and AXCREDS to fetch the
 // resolved credential).
@@ -120,13 +120,8 @@ const PREMIUM_ENV: Record<string, string> = {
   AXCREDROUTER,
 };
 
-const FABLE_ENV: Record<string, string> = {
-  REVIEW_PROFILE: "fable",
-  AXCREDROUTER,
-};
-
-const LUNA_ENV: Record<string, string> = {
-  REVIEW_PROFILE: "luna",
+const ECONOMICAL_ENV: Record<string, string> = {
+  REVIEW_PROFILE: "economical",
   AXCREDROUTER,
 };
 
@@ -138,13 +133,13 @@ const githubCodeRecipes: Recipe[] = [
   },
   {
     recipeId: "pr-review-code-luna",
-    name: "PR code review (Codex Luna)",
-    env: { ...LUNA_ENV },
+    name: "PR code review (economical)",
+    env: { ...ECONOMICAL_ENV },
   },
   {
     recipeId: "pr-review-code-fable",
-    name: "PR code review (fable)",
-    env: { ...FABLE_ENV },
+    name: "PR code review (premium)",
+    env: { ...PREMIUM_ENV },
   },
 ];
 
@@ -156,13 +151,13 @@ const githubApproachRecipes: Recipe[] = [
   },
   {
     recipeId: "pr-review-approach-luna",
-    name: "PR approach review (Codex Luna)",
-    env: { ...LUNA_ENV },
+    name: "PR approach review (economical)",
+    env: { ...ECONOMICAL_ENV },
   },
   {
     recipeId: "pr-review-approach-fable",
-    name: "PR approach review (fable)",
-    env: { ...FABLE_ENV },
+    name: "PR approach review (premium)",
+    env: { ...PREMIUM_ENV },
   },
   {
     recipeId: "pr-review-approach-2",
@@ -196,8 +191,8 @@ const forgejoCodeRecipes: Recipe[] = [
   },
   {
     recipeId: "pr-review-code-forgejo-fable",
-    name: "PR code review (fable, Forgejo)",
-    env: { ...FABLE_ENV },
+    name: "PR code review (premium, Forgejo)",
+    env: { ...PREMIUM_ENV },
   },
 ];
 
@@ -209,8 +204,8 @@ const forgejoApproachRecipes: Recipe[] = [
   },
   {
     recipeId: "pr-review-approach-forgejo-fable",
-    name: "PR approach review (fable, Forgejo)",
-    env: { ...FABLE_ENV },
+    name: "PR approach review (premium, Forgejo)",
+    env: { ...PREMIUM_ENV },
   },
   {
     recipeId: "pr-review-approach-forgejo-2",
@@ -248,20 +243,20 @@ const structuredForgejoRecipes: Array<Recipe & { promptResource: string }> = [
   },
   {
     recipeId: "forgejo-review-approach-luna-1",
-    name: "Structured Forgejo approach review (Codex Luna draw 1)",
-    env: { ...LUNA_ENV },
+    name: "Structured Forgejo approach review (economical draw 1)",
+    env: { ...ECONOMICAL_ENV },
     promptResource: STRUCTURED_FORGEJO_APPROACH_PROMPT_RESOURCE,
   },
   {
     recipeId: "forgejo-review-approach-luna-2",
-    name: "Structured Forgejo approach review (Codex Luna draw 2)",
-    env: { ...LUNA_ENV },
+    name: "Structured Forgejo approach review (economical draw 2)",
+    env: { ...ECONOMICAL_ENV },
     promptResource: STRUCTURED_FORGEJO_APPROACH_PROMPT_RESOURCE,
   },
   {
     recipeId: "forgejo-review-approach-luna-3",
-    name: "Structured Forgejo approach review (Codex Luna draw 3)",
-    env: { ...LUNA_ENV },
+    name: "Structured Forgejo approach review (economical draw 3)",
+    env: { ...ECONOMICAL_ENV },
     promptResource: STRUCTURED_FORGEJO_APPROACH_PROMPT_RESOURCE,
   },
   {
@@ -272,23 +267,31 @@ const structuredForgejoRecipes: Array<Recipe & { promptResource: string }> = [
   },
   {
     recipeId: "forgejo-review-code-luna",
-    name: "Structured Forgejo code review (Codex Luna draw 1)",
-    env: { ...LUNA_ENV },
+    name: "Structured Forgejo code review (economical draw 1)",
+    env: { ...ECONOMICAL_ENV },
     promptResource: STRUCTURED_FORGEJO_CODE_PROMPT_RESOURCE,
   },
   {
     recipeId: "forgejo-review-code-luna-2",
-    name: "Structured Forgejo code review (Codex Luna draw 2)",
-    env: { ...LUNA_ENV },
+    name: "Structured Forgejo code review (economical draw 2)",
+    env: { ...ECONOMICAL_ENV },
     promptResource: STRUCTURED_FORGEJO_CODE_PROMPT_RESOURCE,
   },
   {
     recipeId: "forgejo-review-code-luna-3",
-    name: "Structured Forgejo code review (Codex Luna draw 3)",
-    env: { ...LUNA_ENV },
+    name: "Structured Forgejo code review (economical draw 3)",
+    env: { ...ECONOMICAL_ENV },
     promptResource: STRUCTURED_FORGEJO_CODE_PROMPT_RESOURCE,
   },
 ];
+
+const profileBackedReviewRecipes = [
+  ...githubCodeRecipes,
+  ...githubApproachRecipes,
+  ...forgejoCodeRecipes,
+  ...forgejoApproachRecipes,
+  ...structuredForgejoRecipes,
+].filter((recipe) => recipe.env.REVIEW_PROFILE !== undefined);
 
 // Replaced by the smart set. DELETE /recipes/:id responds 409 when runs
 // exist, so the seeder never deletes — it reports which of these are still
@@ -696,4 +699,8 @@ if (isMainModule()) {
   await main();
 }
 
-export { buildStructuredForgejoSettings, structuredForgejoRecipes };
+export {
+  buildStructuredForgejoSettings,
+  profileBackedReviewRecipes,
+  structuredForgejoRecipes,
+};
