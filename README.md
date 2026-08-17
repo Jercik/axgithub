@@ -62,9 +62,9 @@ jobs:
       label: code
       recipes: >-
         [{"recipe":"pr-review-code-smart","name":"code smart"},
-         {"recipe":"pr-review-code-luna","name":"Codex Luna 1"},
-         {"recipe":"pr-review-code-luna","name":"Codex Luna 2"},
-         {"recipe":"pr-review-code-luna","name":"Codex Luna 3"}]
+         {"recipe":"pr-review-code-luna","name":"economical draw 1"},
+         {"recipe":"pr-review-code-luna","name":"economical draw 2"},
+         {"recipe":"pr-review-code-luna","name":"economical draw 3"}]
       pr_number: ${{ github.event.pull_request.number || inputs.pr_number }}
     secrets:
       NPM_TOKEN: ${{ secrets.FORGEJO_NPM_TOKEN }}
@@ -122,7 +122,8 @@ recipe for each enabled review slot:
 These replace the existing six-recipe Forgejo direct-post roster at the OIDC
 cutover; the new roster has eight slots and is not a one-for-one rename. The fable,
 Gemini, and OpenCode approach slots are retired, while each lane keeps one smart
-draw and adds three independent draws pinned to the Codex Luna profile. During rollout the
+draw and adds three independent draws through the `economical` profile. The stable slot IDs retain
+their historical `luna` suffix. During rollout the
 seeder keeps the legacy roster in the
 explicitly isolated `seedLegacyForgejoDirectPostRecipes` path so current
 workflows continue to run; there is no runtime fallback between the two sets.
