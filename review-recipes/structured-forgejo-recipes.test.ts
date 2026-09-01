@@ -22,8 +22,17 @@ import {
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "..");
-const COMMON_OUTER_KEYS = ["AXCREDS", "AXRUN_ALLOW", "PROMPT_TEXT"];
-const PROFILE_OUTER_KEYS = ["AXCREDROUTER", "REVIEW_PROFILE"];
+const resolveCapabilityPolicyV2 = readFileSync(
+  join(repoRoot, "review-recipes", "resolve-capability-v2.json"),
+  "utf8",
+).trim();
+const COMMON_OUTER_KEYS = [
+  "AXCREDS",
+  "AXRUN_ALLOW",
+  "PROMPT_TEXT",
+  "REVIEW_CAPABILITY_POLICY_V2",
+];
+const PROFILE_OUTER_KEYS = ["AXCREDROUTER", "REVIEW_PORTFOLIO", "REVIEW_PROFILE"];
 const DIRECT_OUTER_KEYS = [
   "REVIEW_AGENT",
   "REVIEW_DISPLAY_NAME",
@@ -76,10 +85,6 @@ test("all profile-backed review recipes use the Stage 1 stable profiles", () => 
       ["pr-review-approach-smart", "premium"],
       ["pr-review-approach-luna", "economical"],
       ["pr-review-approach-fable", "premium"],
-      ["pr-review-code-forgejo-smart", "premium"],
-      ["pr-review-code-forgejo-fable", "premium"],
-      ["pr-review-approach-forgejo-smart", "premium"],
-      ["pr-review-approach-forgejo-fable", "premium"],
       ["forgejo-review-approach-smart-1", "premium"],
       ["forgejo-review-approach-luna-1", "economical"],
       ["forgejo-review-approach-luna-2", "economical"],
@@ -90,7 +95,11 @@ test("all profile-backed review recipes use the Stage 1 stable profiles", () => 
       ["forgejo-review-code-luna-3", "economical"],
     ],
   );
-  assert.equal(profileBackedReviewRecipes.length, 18);
+  assert.equal(profileBackedReviewRecipes.length, 14);
+  assert.deepEqual(
+    [...new Set(profileBackedReviewRecipes.map((recipe) => recipe.env.REVIEW_PORTFOLIO))],
+    ["personal"],
+  );
   assert.equal(
     profileBackedReviewRecipes.some((recipe) => recipe.env.REVIEW_PROFILE === "fable"),
     false,
@@ -126,6 +135,16 @@ test("structured slots preserve the two premium and six economical fanout", () =
       "economical",
       "economical",
     ],
+  );
+});
+
+test("consumer capability policy stays within the frozen review roster", () => {
+  const policy = JSON.parse(resolveCapabilityPolicyV2) as {
+    capabilities: Array<{ agentId: string }>;
+  };
+  assert.deepEqual(
+    policy.capabilities.map((capability) => capability.agentId),
+    ["claude", "codex", "opencode"],
   );
 });
 
@@ -173,6 +192,239 @@ test("versioned structured runner is valid shell", () => {
   assert.equal(result.status, 0, result.stderr);
 });
 
+test("generic runner resolves the requested profile portfolio", () => {
+  const runner = readFileSync(join(repoRoot, "review-recipes", "review-runner.sh"), "utf8");
+  assert.match(runner, /REVIEW_PORTFOLIO:\?REVIEW_PORTFOLIO is required when REVIEW_PROFILE is set/u);
+  assert.match(
+    runner,
+    /resolve --profile "\$REVIEW_PROFILE" --portfolio "\$REVIEW_PORTFOLIO" --json/u,
+  );
+  assert.match(runner, /run_args=\(--agent "\$REVIEW_AGENT"\)/u);
+  assert.match(runner, /run_args\+=\(--provider "\$REVIEW_PROVIDER"\)/u);
+  assert.match(runner, /run_axrun "\$\{run_args\[@\]\}"/u);
+  assert.match(runner, /hasExactKeys\(resolved, \["resolveVersion", "context", "result"\]\)/u);
+  assert.match(runner, /mainPoolExempt/u);
+  assert.match(runner, /warnings/u);
+  assert.match(runner, /validateUnavailable\(result\)/u);
+  assert.match(runner, /value\.reason !== "over-ceiling"/u);
+  assert.doesNotMatch(runner, /npm exec --yes --package=@j4k\/axrun/u);
+  assert.doesNotMatch(runner, /\$provider_args|\$model_args|\$effort_args/u);
+});
+
+test("seeder contains only the hard-cut Forgejo roster", () => {
+  const seeder = readFileSync(join(repoRoot, "scripts", "seed-review-recipes.ts"), "utf8");
+  assert.doesNotMatch(seeder, /seedLegacyForgejoDirectPostRecipes/u);
+  assert.doesNotMatch(seeder, /legacyForgejoDirectPostResources/u);
+  assert.match(seeder, /pr-review-code-forgejo-smart/u);
+  assert.match(seeder, /staleRecipeIds[\s\S]*pr-review-code-forgejo-smart/u);
+});
+
+test("generic runner forwards a resolved provider as one argv element", () => {
+  const directory = mkdtempSync(join(tmpdir(), "axgithub-generic-argv-"));
+  try {
+    const bin = join(directory, "bin");
+    const log = join(directory, "argv.log");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "axrun"),
+      `#!/bin/sh
+if [ "$1" = "resolve" ]; then
+  printf '%s\\n' '{"resolveVersion":2,"context":{"profileId":"premium","portfolioId":"personal","executionMode":"headless","selectionRequirement":{"kind":"any"},"allowOverCeiling":false},"result":{"available":true,"laneId":"opencode-review","routeRevision":"rr3_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","executionTargetId":"target-opencode","agentId":"opencode","providerId":"openai","serviceType":"codex","model":"gpt-5.6-luna with spaces","mainPoolExempt":false,"credentialName":"credential-name","reason":"rank-spread","warnings":[]}}'
+  exit 0
+fi
+printf '%s\\n' "$@" > "$REVIEW_ARGV_LOG"
+`,
+      { mode: 0o700 },
+    );
+    writeFileSync(join(bin, "axinstall"), "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    writeFileSync(join(bin, "opencode"), "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    const environment = {
+      ...process.env,
+      PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+      HOME: directory,
+      TMPDIR: directory,
+      REVIEW_PROFILE: "premium",
+      REVIEW_PORTFOLIO: "personal",
+      AXCREDROUTER: "router-config",
+      REVIEW_CAPABILITY_POLICY_V2: resolveCapabilityPolicyV2,
+      AXRUN_ALLOW: "read,glob,grep,bash:*",
+      PROMPT_TEXT: "Model __REVIEW_MODEL__",
+      REVIEW_ARGV_LOG: log,
+    };
+    delete environment.REVIEW_PROVIDER;
+    const result = spawnSync("sh", [join(repoRoot, "review-recipes", "review-runner.sh")], {
+      encoding: "utf8",
+      env: environment,
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(readFileSync(log, "utf8").trimEnd().split("\n"), [
+      "--agent",
+      "opencode",
+      "--provider",
+      "openai",
+      "--model",
+      "gpt-5.6-luna with spaces",
+      "--vault-credential",
+      "credential-name",
+      "--allow",
+      "read,glob,grep,bash:*",
+      "--prompt",
+      "Model gpt-5.6-luna with spaces",
+    ]);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("generic runner rejects literal malformed Resolve v2 result unions", () => {
+  const available = {
+    available: true,
+    laneId: "opencode-review",
+    routeRevision: "rr3_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    executionTargetId: "target-opencode",
+    agentId: "opencode",
+    providerId: "openai",
+    serviceType: "codex",
+    model: "test-model",
+    mainPoolExempt: false,
+    credentialName: "credential-name",
+    reason: "rank-spread",
+    warnings: [],
+  };
+  const context = {
+    profileId: "premium",
+    portfolioId: "personal",
+    executionMode: "headless",
+    selectionRequirement: { kind: "any" },
+    allowOverCeiling: false,
+  };
+  const cases = [
+    {
+      name: "over-ceiling is rejected when allowOverCeiling is false",
+      result: { ...available, reason: "over-ceiling", overCeiling: { limits: [] } },
+    },
+    {
+      name: "unknown result keys are rejected",
+      result: { ...available, unexpected: "unknown" },
+    },
+    {
+      name: "invalid available reason is rejected",
+      result: { ...available, reason: "not-a-resolve-reason" },
+    },
+    {
+      name: "agent and service capability mismatch is rejected",
+      result: { ...available, agentId: "claude", serviceType: "codex", providerId: undefined, model: "gpt-5.6-luna" },
+    },
+    {
+      name: "model capability mismatch is rejected",
+      result: { ...available, agentId: "claude", serviceType: "claude", providerId: undefined, model: "gpt-5.6-luna" },
+    },
+    {
+      name: "provider capability mismatch is rejected",
+      result: { ...available, providerId: "untrusted-provider" },
+    },
+    {
+      name: "reasoning capability mismatch is rejected",
+      result: { ...available, model: "gpt-5.6-other", reasoningEffort: "high" },
+    },
+    {
+      name: "Grok is rejected outside the frozen consumer capability roster",
+      result: { ...available, agentId: "grok", serviceType: "grok", providerId: undefined, model: "grok-4.6", reasoningEffort: "high" },
+    },
+    {
+      name: "missing required result fields are rejected",
+      result: {
+        available: true,
+        laneId: "opencode-review",
+        routeRevision: "rr3_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        executionTargetId: "target-opencode",
+        agentId: "opencode",
+        providerId: "openai",
+        serviceType: "codex",
+        model: "test-model",
+        credentialName: "credential-name",
+        reason: "rank-spread",
+      },
+    },
+    {
+      name: "malformed unavailable union is rejected before the unavailable failure",
+      result: {
+        available: false,
+        reason: "selection-unmatched",
+        routes: [],
+        warnings: [],
+        overCeiling: { permitted: false, viable: false },
+      },
+    },
+  ];
+  for (const testCase of cases) {
+    const result = runGenericResolvePayload(JSON.stringify({ resolveVersion: 2, context, result: testCase.result }));
+    assert.notEqual(result.status, 0, testCase.name);
+    assert.match(result.stderr, /matching Resolve v2 response/u, testCase.name);
+  }
+});
+
+test("generic runner accepts the canonical supported capability tuples", () => {
+  const tuples = [
+    { agentId: "claude", serviceType: "claude", model: "opus", reasoningEffort: "high" },
+    { agentId: "codex", serviceType: "codex", model: "gpt-5.6-luna", reasoningEffort: "xhigh" },
+    { agentId: "opencode", serviceType: "codex", model: "gpt-5.6-luna", providerId: "openai", reasoningEffort: "high" },
+  ];
+  for (const tuple of tuples) {
+    const result = runGenericResolvePayload(JSON.stringify({
+      resolveVersion: 2,
+      context: {
+        profileId: "premium",
+        portfolioId: "personal",
+        executionMode: "headless",
+        selectionRequirement: { kind: "any" },
+        allowOverCeiling: false,
+      },
+      result: {
+        available: true,
+        laneId: "capability-test",
+        routeRevision: "rr3_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        executionTargetId: "target-capability-test",
+        ...tuple,
+        mainPoolExempt: false,
+        credentialName: "credential-name",
+        reason: "rank-spread",
+        warnings: [],
+      },
+    }));
+    assert.equal(result.status, 0, JSON.stringify(tuple));
+  }
+});
+
+test("structured runner rejects the Grok tuple outside the frozen consumer roster", () => {
+  const result = runStructuredResolvePayload(JSON.stringify({
+    resolveVersion: 2,
+    context: {
+      profileId: "premium",
+      portfolioId: "personal",
+      executionMode: "headless",
+      selectionRequirement: { kind: "any" },
+      allowOverCeiling: false,
+    },
+    result: {
+      available: true,
+      laneId: "grok-review",
+      routeRevision: "rr3_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      executionTargetId: "target-grok",
+      agentId: "grok",
+      serviceType: "grok",
+      model: "grok-4.6",
+      mainPoolExempt: false,
+      credentialName: "credential-name",
+      reason: "rank-spread",
+      reasoningEffort: "high",
+      warnings: [],
+    },
+  }));
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /matching Resolve v2 response/u);
+});
+
 test("structured runner prepares helpers before handing its descriptor to axrun", () => {
   const recipe = structuredForgejoRecipes[0];
   assert.ok(recipe);
@@ -183,15 +435,32 @@ test("structured runner prepares helpers before handing its descriptor to axrun"
   assert.match(command, /unlinkSync\(handoffPath\)/u);
   assert.match(command, /--credential-handoff-fd 4/u);
   assert.match(command, /"TMPDIR=\$review_tmp"/u);
-  assert.match(command, /typeof resolved\.agentId !== "string"/u);
-  assert.match(command, /typeof resolved\.credentialName !== "string"/u);
+  assert.match(command, /resolved\.resolveVersion === 2/u);
+  assert.match(command, /hasExactKeys\(resolved, \["resolveVersion", "context", "result"\]\)/u);
+  assert.match(command, /validateAvailable\(result\)/u);
+  assert.match(command, /validateUnavailable\(result\)/u);
+  assert.match(command, /value\.reason !== "over-ceiling"/u);
+  assert.match(command, /value\.reason !== "all-lanes-exhausted"/u);
+  assert.match(command, /mainPoolExempt/u);
+  assert.match(command, /warnings/u);
+  assert.match(command, /hasExactKeys\(value\.overCeiling, \["permitted", "viable"\]\)/u);
+  assert.match(command, /context\.profileId === expectedProfile/u);
+  assert.match(command, /context\.portfolioId === expectedPortfolio/u);
+  assert.match(command, /context\.executionMode === "headless"/u);
+  assert.match(command, /selection\.kind === "any"/u);
+  assert.match(command, /!nonEmpty\(value\.model\)/u);
+  assert.match(
+    command,
+    /resolve --profile "\$REVIEW_PROFILE" --portfolio "\$REVIEW_PORTFOLIO" --json/u,
+  );
+  assert.match(command, /REVIEW_PORTFOLIO=\$\{REVIEW_PORTFOLIO:-\}/u);
   assert.match(command, /cat > "\$TMPDIR\/substitute-prompt\.cjs"/u);
   assert.match(command, /\/bin\/rm -f "\$inner_runner"\ninner_runner=""/u);
   assert.match(command, /preinstall every selectable review agent before axrecipe starts/u);
   assert.doesNotMatch(command, /trusted review-tools prefix/u);
   assert.doesNotMatch(command, /axinstall/u);
   assert.doesNotMatch(command, /trusted_axinstall|NPM_CONFIG_PREFIX|npm prefix -g|npm-global/u);
-  assert.doesNotMatch(command, /@j4k\/axrun@2\.12\.0/u);
+  assert.doesNotMatch(command, /npm exec --yes --package=@j4k\/axrun/u);
   assert.doesNotMatch(command, /provider_args/u);
   assert.ok(
     command.indexOf('review_agent_bin="$(command -v "$review_agent_command"') <
@@ -225,7 +494,17 @@ test("composed reviewer child environment is a positive allowlist", () => {
       `#!/usr/bin/env node
 const fs = require("node:fs");
 if (process.argv[2] === "resolve") {
-  console.log(JSON.stringify({ available: true, agentId: "claude", credentialName: "test-credential", displayName: "Test" }));
+  console.log(JSON.stringify({
+    resolveVersion: 2,
+    context: {
+      profileId: process.argv[process.argv.indexOf("--profile") + 1],
+      portfolioId: process.argv[process.argv.indexOf("--portfolio") + 1],
+      executionMode: "headless",
+      selectionRequirement: { kind: "any" },
+      allowOverCeiling: false,
+    },
+    result: { available: true, laneId: "claude-review", routeRevision: "rr3_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", executionTargetId: "target-claude", agentId: "claude", model: "opus", credentialName: "test-credential", displayName: "Test", serviceType: "claude", mainPoolExempt: false, reason: "rank-spread", warnings: [] },
+  }));
   process.exit(0);
 }
 if (process.argv[2] === "credential" && process.argv[3] === "export" && process.argv.includes("--help")) {
@@ -397,4 +676,74 @@ function runShell(command: string, environment: NodeJS.ProcessEnv) {
     encoding: "utf8",
     env: environment,
   });
+}
+
+function runGenericResolvePayload(payload: string) {
+  const directory = mkdtempSync(join(tmpdir(), "axgithub-resolve-v2-"));
+  try {
+    const bin = join(directory, "bin");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "axrun"),
+      '#!/bin/sh\nif [ "$1" = "resolve" ]; then printf \'%s\\n\' "$RESOLVE_PAYLOAD"; exit 0; fi\nexit 0\n',
+      { mode: 0o700 },
+    );
+    writeFileSync(join(bin, "axinstall"), "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    for (const agent of ["claude", "codex", "opencode"]) {
+      writeFileSync(join(bin, agent), "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    }
+    return spawnSync("sh", [join(repoRoot, "review-recipes", "review-runner.sh")], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+        HOME: directory,
+        TMPDIR: directory,
+        REVIEW_PROFILE: "premium",
+        REVIEW_PORTFOLIO: "personal",
+        REVIEW_CAPABILITY_POLICY_V2: resolveCapabilityPolicyV2,
+        AXCREDROUTER: "router-config",
+        AXRUN_ALLOW: "read,glob,grep,bash:*",
+        PROMPT_TEXT: "Model __REVIEW_MODEL__",
+        RESOLVE_PAYLOAD: payload,
+      },
+    });
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+function runStructuredResolvePayload(payload: string) {
+  const directory = mkdtempSync(join(tmpdir(), "axgithub-structured-resolve-v2-"));
+  try {
+    const bin = join(directory, "bin");
+    const contextPath = join(directory, "context.json");
+    const outputPath = join(directory, "output.json");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "axrun"),
+      String.raw`#!/bin/sh
+if [ "$1" = "resolve" ]; then printf \'%s\\n\' "$RESOLVE_PAYLOAD"; exit 0; fi
+if [ "$1" = "credential" ] && [ "$2" = "export" ] && [ "$3" = "--help" ]; then printf \'%s\\n\' "--output"; exit 0; fi
+if [ "$1" = "--help" ]; then printf \'%s\\n\' "--credential-handoff-fd"; exit 0; fi
+exit 0
+`,
+      { mode: 0o700 },
+    );
+    writeFileSync(contextPath, "{}\n", { mode: 0o600 });
+    const recipe = structuredForgejoRecipes[0];
+    assert.ok(recipe);
+    const settings = buildStructuredForgejoSettings(recipe, recipe.promptResource);
+    return runShell(settings.args[1], {
+      ...settings.env,
+      PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+      HOME: directory,
+      TMPDIR: directory,
+      REVIEW_CONTEXT_PATH: contextPath,
+      REVIEW_OUTPUT_PATH: outputPath,
+      RESOLVE_PAYLOAD: payload,
+    });
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 }

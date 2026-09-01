@@ -74,24 +74,39 @@ jobs:
 ## Review runner
 
 [`review-recipes/review-runner.sh`](review-recipes/review-runner.sh) is the
-shell script each legacy direct-post recipe executes on the runner. The
+shell script each direct-post recipe executes on the runner. The
 structured Forgejo slots embed a transformed copy under the isolated wrapper
 described below. The generic runner has two modes, selected by whether
 `REVIEW_PROFILE` is set in the recipe env.
 
 **Profile mode (resolve → install → run).** When `REVIEW_PROFILE` names an
 [axcredrouter](https://credrouter.axkit.dev) profile (e.g. `premium`),
-the runner first calls `axrun resolve --profile "$REVIEW_PROFILE" --json`
-(configured via the `AXCREDROUTER` env JSON, which recipes inject as
-`{{vault:ci-axcredrouter-config}}`). The resolve response picks the lane —
-agent, model, credential, reasoning effort — against live usage; the runner
-parses it with node and exports `REVIEW_AGENT`, `REVIEW_MODEL`,
-`REVIEW_VAULT_CREDENTIAL`, `REVIEW_DISPLAY_NAME` (`displayName`, falling back
-to the agent id), and `REVIEW_REASONING_EFFORT`. Only then does `axinstall`
+the runner first calls `axrun resolve --profile "$REVIEW_PROFILE" --portfolio
+"$REVIEW_PORTFOLIO" --json` (configured via the `AXCREDROUTER` env JSON, which
+recipes inject as `{{vault:ci-axcredrouter-config}}`). Profile-backed recipes
+set `REVIEW_PORTFOLIO=personal` explicitly. It accepts only a Resolve v2
+envelope whose `context` echoes the requested profile, portfolio, headless
+mode, and `{kind: "any"}` selection. The available result must name a
+non-empty agent, model, and credential; the runner also requires the strict
+Resolve v2 lane, route revision, execution target, service, `mainPoolExempt`,
+reason, warning, and enum/type fields, rejecting unknown or missing keys. The
+unavailable union is validated before the deliberate exhausted-pool failure,
+and only `all-lanes-exhausted` is valid for the `{kind: "any"}` request. Since
+the request sets `allowOverCeiling=false`, over-ceiling reasons/evidence are
+rejected. An optional `providerId` is carried through to the direct argv. Only then does `axinstall`
 install the resolved agent, and the final `axrun` invocation passes `--model`
-and `--reasoning-effort` only when the lane supplied them. When every lane is
+and `--reasoning-effort` when the lane supplies it. When every lane is
 exhausted, `axrun resolve` exits 1 and the job fails — an exhausted pool is a
 deliberate red check, not a silent skip.
+
+The cross-field capability refinement is the versioned
+[`resolve-capability-v2.json`](review-recipes/resolve-capability-v2.json) seam
+shared by the generic and structured runners. It binds harness, service,
+model, provider, headless support, and reasoning vocabulary; an absent,
+malformed, or unsupported tuple fails closed. Keep this policy synchronized
+with the frozen review intent roster and released axkit capability catalog as
+part of the immutable axrun deployment gate; Grok is intentionally outside
+this consumer roster.
 
 **Legacy direct mode.** When `REVIEW_PROFILE` is unset, the recipe env drives
 the run directly via `REVIEW_AGENT`, `REVIEW_MODEL`, `REVIEW_VAULT_CREDENTIAL`,
@@ -119,15 +134,10 @@ recipe for each enabled review slot:
 - `forgejo-review-code-luna-2`
 - `forgejo-review-code-luna-3`
 
-These replace the existing six-recipe Forgejo direct-post roster at the OIDC
-cutover; the new roster has eight slots and is not a one-for-one rename. The fable,
-Gemini, and OpenCode approach slots are retired, while each lane keeps one smart
-draw and adds three independent draws through the `economical` profile. The stable slot IDs retain
-their historical `luna` suffix. During rollout the
-seeder keeps the legacy roster in the
-explicitly isolated `seedLegacyForgejoDirectPostRecipes` path so current
-workflows continue to run; there is no runtime fallback between the two sets.
-The structured slots are the OIDC migration contract shared with `axrecipe`,
+This eight-slot roster is the hard-cut Forgejo set; the retired direct-post
+recipes are reported through `staleRecipeIds` for manual descope and pruning.
+The stable slot IDs retain their historical `luna` suffix. The structured slots
+are the OIDC migration contract shared with `axrecipe`,
 `j4k/cluster`, and `j4k/align`.
 The eight slots share two versioned resources:
 
@@ -177,7 +187,8 @@ generator shell—owns the O_NOFOLLOW bounded read, strict schema validation, ru
 binding, and exact-byte result submission.
 
 The checked-in structured runner first resolves a profile (when configured),
-requires the selected agent to exist on the trusted `PATH`, and prepares its
+using the same strict Resolve v2 envelope/result-union contract and
+`allowOverCeiling=false` semantics, requires the selected agent to exist on the trusted `PATH`, and prepares its
 wrappers and prompt under `env -i`. That preparation environment contains a
 fresh temporary `HOME`/`TMPDIR`, inherited `PATH`, the two axrecipe paths,
 prompt text, and model routing. It executes no package manager or installer.
@@ -188,7 +199,7 @@ final model environment. It contains neither `AXCREDS`/`AXCREDROUTER`, a vault
 credential name, nor `REVIEW_PROVIDER`, and every helper process exits before
 a credential handoff exists.
 
-Only then does the wrapper ask `@j4k/axrun@5` to export the selected credential
+Only then does the wrapper ask a released `@j4k/axrun` build to export the selected credential
 into an exclusive `0600` file and `exec` a clean Node launcher. The launcher
 opens and unlinks that file, maps it to fd 4 only in axrun, closes its own copy
 immediately, and remains a credential-free parent. The final environment
@@ -201,7 +212,7 @@ descriptor;
 `REVIEW_PROVIDER` is solely a legacy direct-mode input and must not be
 reintroduced here.
 
-The consuming workflow must supply every agent reachable through the six
+The consuming workflow must supply every agent reachable through the eight
 slots—currently Claude, Codex, and OpenCode—before it starts the secret-bearing
 axrecipe process. Installation cannot
 run earlier in the same persistent UID/process/mount namespace: a package
@@ -231,23 +242,12 @@ job. The poster independently binds the accepted result to the
 OIDC-authenticated repository/PR/head/slot, re-fetches the current diff,
 validates each path and position, and posts exactly once.
 
-Before enabling `pr-review-code-luna` or `forgejo-review-code-luna`, run the
-seeder and add both IDs to the cluster-managed execute-key scope; the workflow
-caller may dispatch a slot only after the recipe exists and the key authorizes
-it. During the rollout overlap, pre-fetch `@j4k/axrun@5` for both rosters. Version 5
-retains the legacy direct-mode `--vault-credential` and `--provider` flags, so
-the direct-post recipes can use the same binary; their `2.12.0` npm fallback is
-not a workflow installation path. Structured recipes additionally require the
-v5 credential-export and handoff-fd capabilities that the wrapper probes.
-
-After every managed Forgejo workflow has moved to the structured slots, finish
-the hard cutover in one change: delete
-`seedLegacyForgejoDirectPostRecipes` and its isolated resources/recipe arrays,
-move every retired Forgejo recipe ID into `staleRecipeIds`, remove those IDs
-from the cluster-managed execute-key scope, and reseed. Historical recipes with
-recorded runs may remain in the database, but the seeder must report them until
-an operator can prune them, and no key may authorize them. Do not add a
-compatibility flag or fall back to the old IDs.
+Before enabling a slot, run the seeder and add its ID to the cluster-managed
+execute-key scope; the workflow caller may dispatch it only after the recipe
+exists and the key authorizes it. The runner requires an axrun executable on
+`PATH`; deployment is gated until a released build supports Resolve v2 and,
+for structured recipes, credential export plus handoff-fd. There is no npm
+fallback or guessed package pin in the runner.
 
 ## Gotchas
 
