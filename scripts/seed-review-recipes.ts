@@ -7,8 +7,7 @@
  * from version control: the canonical runner sources in review-recipes/ and
  * the prompts in review-prompts/ are the source of truth.
  *
- * Legacy recipes keep their direct-post prompts for the GitHub and Forgejo
- * workflows that still use them. The new Forgejo structured recipes are
+ * GitHub recipes keep their direct-post prompts. The Forgejo structured recipes are
  * deliberately separate: an untrusted LLM can only read a trusted, nonsecret
  * context file and write a strictly bounded JSON handoff. A trusted poster
  * later binds that handoff to its authenticated PR/head/slot and posts it.
@@ -31,6 +30,10 @@ const structuredRunnerTemplate = readFileSync(
   join(repoRoot, "review-recipes", "structured-forgejo-runner.sh"),
   "utf8",
 );
+const resolveCapabilityPolicyV2 = readFileSync(
+  join(repoRoot, "review-recipes", "resolve-capability-v2.json"),
+  "utf8",
+).trim();
 
 function readPrompt(file: string): string {
   return readFileSync(join(repoRoot, "review-prompts", file), "utf8");
@@ -38,8 +41,6 @@ function readPrompt(file: string): string {
 
 const GITHUB_CODE_PROMPT_RESOURCE = "pr-review-code-github-prompt";
 const GITHUB_APPROACH_PROMPT_RESOURCE = "pr-review-approach-github-prompt";
-const FORGEJO_CODE_PROMPT_RESOURCE = "pr-review-code-forgejo-prompt";
-const FORGEJO_APPROACH_PROMPT_RESOURCE = "pr-review-approach-forgejo-prompt";
 const STRUCTURED_FORGEJO_APPROACH_PROMPT_RESOURCE = "forgejo-review-approach-v1-prompt";
 const STRUCTURED_FORGEJO_CODE_PROMPT_RESOURCE = "forgejo-review-code-v1-prompt";
 
@@ -78,27 +79,6 @@ const resources: Resource[] = [
   },
 ];
 
-// Rollout-only compatibility set. Once every Forgejo workflow uses the OIDC
-// structured slots, delete this array and seedLegacyForgejoDirectPostRecipes,
-// then remove these recipe IDs from the cluster-managed execute-key scope.
-// Keeping the legacy set physically separate makes the hard cutover a deletion,
-// not a permanent flag or fallback.
-const legacyForgejoDirectPostResources: Resource[] = [
-  {
-    resourceId: FORGEJO_CODE_PROMPT_RESOURCE,
-    name: "PR code review prompt (Forgejo)",
-    description: "Forgejo-shaped code review prompt; posts via the Forgejo Reviews API with curl.",
-    content: readPrompt("pr-review-code-forgejo-prompt.md"),
-  },
-  {
-    resourceId: FORGEJO_APPROACH_PROMPT_RESOURCE,
-    name: "PR approach review prompt (Forgejo)",
-    description:
-      "Forgejo-shaped approach review prompt; posts via the Forgejo Reviews API with curl.",
-    content: readPrompt("pr-review-approach-forgejo-prompt.md"),
-  },
-];
-
 interface Recipe {
   recipeId: string;
   name: string;
@@ -117,11 +97,13 @@ const ALLOW = "read,glob,grep,bash:*";
 
 const PREMIUM_ENV: Record<string, string> = {
   REVIEW_PROFILE: "premium",
+  REVIEW_PORTFOLIO: "personal",
   AXCREDROUTER,
 };
 
 const ECONOMICAL_ENV: Record<string, string> = {
   REVIEW_PROFILE: "economical",
+  REVIEW_PORTFOLIO: "personal",
   AXCREDROUTER,
 };
 
@@ -173,54 +155,6 @@ const githubApproachRecipes: Recipe[] = [
   {
     recipeId: "pr-review-approach-3",
     name: "PR approach review 3",
-    env: {
-      REVIEW_AGENT: "opencode",
-      REVIEW_MODEL: "GLM-5.2",
-      REVIEW_DISPLAY_NAME: "Approach Review 3 (OpenCode Wafer)",
-      REVIEW_VAULT_CREDENTIAL: "ci-opencode-wafer-credentials",
-      REVIEW_PROVIDER: "wafer.ai",
-    },
-  },
-];
-
-const forgejoCodeRecipes: Recipe[] = [
-  {
-    recipeId: "pr-review-code-forgejo-smart",
-    name: "PR code review (smart, Forgejo)",
-    env: { ...PREMIUM_ENV },
-  },
-  {
-    recipeId: "pr-review-code-forgejo-fable",
-    name: "PR code review (premium, Forgejo)",
-    env: { ...PREMIUM_ENV },
-  },
-];
-
-const forgejoApproachRecipes: Recipe[] = [
-  {
-    recipeId: "pr-review-approach-forgejo-smart",
-    name: "PR approach review (smart, Forgejo)",
-    env: { ...PREMIUM_ENV },
-  },
-  {
-    recipeId: "pr-review-approach-forgejo-fable",
-    name: "PR approach review (premium, Forgejo)",
-    env: { ...PREMIUM_ENV },
-  },
-  {
-    recipeId: "pr-review-approach-forgejo-2",
-    name: "PR approach review 2 (Forgejo)",
-    env: {
-      REVIEW_AGENT: "gemini",
-      REVIEW_MODEL: "gemini-3.1-pro-preview",
-      REVIEW_DISPLAY_NAME: "Approach Review 2",
-      REVIEW_VAULT_CREDENTIAL: "ci-gemini-api-key",
-      GEMINI_CLI_TRUST_WORKSPACE: "true",
-    },
-  },
-  {
-    recipeId: "pr-review-approach-forgejo-3",
-    name: "PR approach review 3 (Forgejo)",
     env: {
       REVIEW_AGENT: "opencode",
       REVIEW_MODEL: "GLM-5.2",
@@ -288,8 +222,6 @@ const structuredForgejoRecipes: Array<Recipe & { promptResource: string }> = [
 const profileBackedReviewRecipes = [
   ...githubCodeRecipes,
   ...githubApproachRecipes,
-  ...forgejoCodeRecipes,
-  ...forgejoApproachRecipes,
   ...structuredForgejoRecipes,
 ].filter((recipe) => recipe.env.REVIEW_PROFILE !== undefined);
 
@@ -309,6 +241,12 @@ const staleRecipeIds = [
   "pr-review-code-forgejo-2",
   "pr-review-approach-forgejo-1",
   "pr-review-approach-forgejo-4",
+  "pr-review-code-forgejo-smart",
+  "pr-review-code-forgejo-fable",
+  "pr-review-approach-forgejo-smart",
+  "pr-review-approach-forgejo-fable",
+  "pr-review-approach-forgejo-2",
+  "pr-review-approach-forgejo-3",
   "forgejo-review-approach-smart-2",
   "forgejo-review-approach-3",
   "forgejo-review-code-smart-2",
@@ -320,6 +258,7 @@ function buildSettings(recipe: Recipe, promptResource: string, withPerplexity: b
     ...recipe.env,
     PROMPT_TEXT: `{{resource:${promptResource}}}`,
     AXCREDS,
+    REVIEW_CAPABILITY_POLICY_V2: resolveCapabilityPolicyV2,
     ...(withPerplexity ? { PERPLEXITY_API_KEY: PERPLEXITY } : {}),
   };
   // Non-login shell: Debian /etc/profile resets PATH in `sh -l`, hiding the workflow's pre-fetched bins.
@@ -335,6 +274,7 @@ function buildStructuredForgejoRunner(): string {
   };
   const profileResolve =
     'if [ -n "${REVIEW_PROFILE:-}" ]; then\n' +
+    '  : "${REVIEW_PORTFOLIO:?REVIEW_PORTFOLIO is required when REVIEW_PROFILE is set}"\n' +
     "  # Exit 1 = all lanes exhausted (the intended red check); set -e fails the job here.";
   const legacyRequirePrefetched = `require_prefetched() {
   echo "$1 not on PATH: the workflow must pre-fetch $2 into the trusted review-tools prefix (no registry auth exists after the credential strip)" >&2
@@ -349,10 +289,8 @@ function buildStructuredForgejoRunner(): string {
     axrun "$@"
     return
   fi
-  if [ -n "\${GITHUB_ACTIONS:-}" ]; then
-    require_prefetched axrun @j4k/axrun@2.12.0
-  fi
-  npm exec --yes --package=@j4k/axrun@2.12.0 -- axrun "$@"
+  echo "axrun is not on PATH: deploy a released @j4k/axrun build with Resolve v2 support" >&2
+  exit 1
 }`;
   const legacyAxinstall = `run_axinstall() {
   if command -v axinstall >/dev/null 2>&1; then
@@ -395,19 +333,16 @@ case ":$PATH:" in
   *":$HOME/.local/bin:"*) ;;
   *) export PATH="$HOME/.local/bin:$PATH" ;;
 esac`;
-  const legacyProvider = `provider_args=""
-if [ -n "\${REVIEW_PROVIDER:-}" ]; then
-  provider_args="--provider $REVIEW_PROVIDER"
-fi`;
-  const legacyInvocation = `run_axrun --agent "$REVIEW_AGENT" \\
-$provider_args \\
-$model_args \\
-$effort_args \\
---vault-credential "$REVIEW_VAULT_CREDENTIAL" \\
---allow "$AXRUN_ALLOW" \\
---prompt "$(cat /tmp/prompt.md)"`;
-  // Axrun v5 binds the provider to the exported agent credential descriptor.
-  // Structured recipes must not forward the legacy REVIEW_PROVIDER variable.
+  const legacyInvocation = `run_args+=(--model "$REVIEW_MODEL")
+if [ -n "\${REVIEW_REASONING_EFFORT:-}" ]; then
+  run_args+=(--reasoning-effort "$REVIEW_REASONING_EFFORT")
+fi
+run_args+=(--vault-credential "$REVIEW_VAULT_CREDENTIAL")
+run_args+=(--allow "$AXRUN_ALLOW")
+run_args+=(--prompt "$(cat /tmp/prompt.md)")
+run_axrun "\${run_args[@]}"`;
+  // Structured recipes bind the provider through the exported agent credential descriptor.
+  // The generic direct runner still forwards an explicit provider selected by Resolve v2.
   const preparationInvocation = `node - "$AXRUN_PREPARED_STATE" "$TMPDIR/prompt.md" <<'WRITE_STRUCTURED_REVIEW_STATE'
 const fs = require("node:fs");
 const [output, promptPath] = process.argv.slice(2);
@@ -452,13 +387,9 @@ WRITE_STRUCTURED_REVIEW_STATE`;
     "# Structured agents are preinstalled on the trusted PATH.",
   );
   const withoutLegacyRouting = replaceExactlyOnce(
-    replaceExactlyOnce(
-      withoutLegacyPaths,
-      profileResolve,
-      "if false; then\n  # Profile resolution completed before the clean boundary.",
-    ),
-    legacyProvider,
-    "# Provider routing is bound into the axrun v5 credential handoff.",
+    withoutLegacyPaths,
+    profileResolve,
+    "if false; then\n  # Profile resolution completed before the clean boundary.",
   );
   const preparedGenericRunner = replaceExactlyOnce(
     withoutLegacyRouting,
@@ -517,14 +448,13 @@ function buildStructuredForgejoSettings(
     ...recipe.env,
     PROMPT_TEXT: `{{resource:${promptResource}}}`,
     AXCREDS,
+    REVIEW_CAPABILITY_POLICY_V2: resolveCapabilityPolicyV2,
   };
   return { command: "sh", args: ["-c", structuredForgejoRunner], env };
 }
 
 const GITHUB_RECIPE_DESCRIPTION =
   "GitHub PR review slot. Posts via the GitHub Reviews API. Seeded from axgithub/scripts/seed-review-recipes.ts.";
-const FORGEJO_RECIPE_DESCRIPTION =
-  "Forgejo PR review slot. Posts via the Forgejo Reviews API. Seeded from axgithub/scripts/seed-review-recipes.ts.";
 const STRUCTURED_FORGEJO_RECIPE_DESCRIPTION =
   "Isolated Forgejo review generator. Produces a versioned JSON handoff for axrecipe v9 validation; a separate trusted job posts it. Seeded from axgithub/scripts/seed-review-recipes.ts.";
 
@@ -623,28 +553,6 @@ async function listStaleRecipes(ids: string[]): Promise<string[]> {
   return stale;
 }
 
-async function seedLegacyForgejoDirectPostRecipes(): Promise<void> {
-  for (const resource of legacyForgejoDirectPostResources) {
-    await upsertResource(resource);
-  }
-  for (const recipe of forgejoCodeRecipes) {
-    await upsertRecipe(
-      recipe.recipeId,
-      recipe.name,
-      FORGEJO_RECIPE_DESCRIPTION,
-      buildSettings(recipe, FORGEJO_CODE_PROMPT_RESOURCE, true),
-    );
-  }
-  for (const recipe of forgejoApproachRecipes) {
-    await upsertRecipe(
-      recipe.recipeId,
-      recipe.name,
-      FORGEJO_RECIPE_DESCRIPTION,
-      buildSettings(recipe, FORGEJO_APPROACH_PROMPT_RESOURCE, false),
-    );
-  }
-}
-
 async function main(): Promise<void> {
   if (!apiKey) {
     console.error("AXRECIPE_API_KEY is required (admin/manage-scoped key).");
@@ -670,9 +578,6 @@ async function main(): Promise<void> {
       buildSettings(recipe, GITHUB_APPROACH_PROMPT_RESOURCE, false),
     );
   }
-  // Temporary rollout bridge. Delete this call with its helper/data at the
-  // OIDC cutover; the structured slots below are the only durable Forgejo set.
-  await seedLegacyForgejoDirectPostRecipes();
   for (const recipe of structuredForgejoRecipes) {
     await upsertRecipe(
       recipe.recipeId,

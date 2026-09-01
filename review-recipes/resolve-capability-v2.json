@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "capabilities": [
+    {
+      "agentId": "claude",
+      "serviceType": "claude",
+      "providerId": null,
+      "executionModes": ["headless"],
+      "modelNamespace": {"kind": "exact", "values": ["opus", "sonnet", "haiku", "fable"]},
+      "reasoning": {"kind": "closed", "values": ["low", "medium", "high", "xhigh", "max"]}
+    },
+    {
+      "agentId": "codex",
+      "serviceType": "codex",
+      "providerId": null,
+      "executionModes": ["headless"],
+      "modelNamespace": {"kind": "prefix", "value": "gpt-"},
+      "reasoning": {"kind": "open"}
+    },
+    {
+      "agentId": "opencode",
+      "serviceType": "codex",
+      "providerId": "openai",
+      "executionModes": ["headless"],
+      "modelNamespace": {"kind": "prefix", "value": "gpt-"},
+      "reasoning": {
+        "kind": "byModel",
+        "values": {
+          "gpt-5.6-luna": ["none", "low", "medium", "high", "xhigh", "max"]
+        }
+      }
+    }
+  ]
+}
