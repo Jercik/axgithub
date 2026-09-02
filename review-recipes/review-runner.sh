@@ -376,15 +376,15 @@ for (const name of ["REVIEW_REPOSITORY", "REVIEW_PR_NUMBER", "REVIEW_DISPLAY_NAM
 fs.writeFileSync(file, text);
 SUBSTITUTE
 node /tmp/substitute-prompt.cjs /tmp/prompt.md
-run_args=(--agent "$REVIEW_AGENT")
+set -- --agent "$REVIEW_AGENT"
 if [ -n "${REVIEW_PROVIDER:-}" ]; then
-  run_args+=(--provider "$REVIEW_PROVIDER")
+  set -- "$@" --provider "$REVIEW_PROVIDER"
 fi
-run_args+=(--model "$REVIEW_MODEL")
+set -- "$@" --model "$REVIEW_MODEL"
 if [ -n "${REVIEW_REASONING_EFFORT:-}" ]; then
-  run_args+=(--reasoning-effort "$REVIEW_REASONING_EFFORT")
+  set -- "$@" --reasoning-effort "$REVIEW_REASONING_EFFORT"
 fi
-run_args+=(--vault-credential "$REVIEW_VAULT_CREDENTIAL")
-run_args+=(--allow "$AXRUN_ALLOW")
-run_args+=(--prompt "$(cat /tmp/prompt.md)")
-run_axrun "${run_args[@]}"
+set -- "$@" --vault-credential "$REVIEW_VAULT_CREDENTIAL"
+set -- "$@" --allow "$AXRUN_ALLOW"
+set -- "$@" --prompt "$(cat /tmp/prompt.md)"
+run_axrun "$@"
