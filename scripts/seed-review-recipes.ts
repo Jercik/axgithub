@@ -333,14 +333,18 @@ case ":$PATH:" in
   *":$HOME/.local/bin:"*) ;;
   *) export PATH="$HOME/.local/bin:$PATH" ;;
 esac`;
-  const legacyInvocation = `run_args+=(--model "$REVIEW_MODEL")
-if [ -n "\${REVIEW_REASONING_EFFORT:-}" ]; then
-  run_args+=(--reasoning-effort "$REVIEW_REASONING_EFFORT")
+  const legacyInvocation = `set -- --agent "$REVIEW_AGENT"
+if [ -n "\${REVIEW_PROVIDER:-}" ]; then
+  set -- "$@" --provider "$REVIEW_PROVIDER"
 fi
-run_args+=(--vault-credential "$REVIEW_VAULT_CREDENTIAL")
-run_args+=(--allow "$AXRUN_ALLOW")
-run_args+=(--prompt "$(cat /tmp/prompt.md)")
-run_axrun "\${run_args[@]}"`;
+set -- "$@" --model "$REVIEW_MODEL"
+if [ -n "\${REVIEW_REASONING_EFFORT:-}" ]; then
+  set -- "$@" --reasoning-effort "$REVIEW_REASONING_EFFORT"
+fi
+set -- "$@" --vault-credential "$REVIEW_VAULT_CREDENTIAL"
+set -- "$@" --allow "$AXRUN_ALLOW"
+set -- "$@" --prompt "$(cat /tmp/prompt.md)"
+run_axrun "$@"`;
   // Structured recipes bind the provider through the exported agent credential descriptor.
   // The generic direct runner still forwards an explicit provider selected by Resolve v2.
   const preparationInvocation = `node - "$AXRUN_PREPARED_STATE" "$TMPDIR/prompt.md" <<'WRITE_STRUCTURED_REVIEW_STATE'

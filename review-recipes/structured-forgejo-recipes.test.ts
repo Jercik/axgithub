@@ -192,6 +192,22 @@ test("versioned structured runner is valid shell", () => {
   assert.equal(result.status, 0, result.stderr);
 });
 
+test("generated structured runner is valid Debian shell", () => {
+  const settings = buildStructuredForgejoSettings(
+    structuredForgejoRecipes[0],
+    structuredForgejoRecipes[0].promptResource,
+  );
+  const result = spawnSync("dash", ["-n", "-c", settings.args[1]], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("generic runner is valid Debian shell", () => {
+  const result = spawnSync("dash", ["-n", join(here, "review-runner.sh")], {
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
+
 test("generic runner resolves the requested profile portfolio", () => {
   const runner = readFileSync(join(repoRoot, "review-recipes", "review-runner.sh"), "utf8");
   assert.match(runner, /REVIEW_PORTFOLIO:\?REVIEW_PORTFOLIO is required when REVIEW_PROFILE is set/u);
@@ -199,9 +215,9 @@ test("generic runner resolves the requested profile portfolio", () => {
     runner,
     /resolve --profile "\$REVIEW_PROFILE" --portfolio "\$REVIEW_PORTFOLIO" --json/u,
   );
-  assert.match(runner, /run_args=\(--agent "\$REVIEW_AGENT"\)/u);
-  assert.match(runner, /run_args\+=\(--provider "\$REVIEW_PROVIDER"\)/u);
-  assert.match(runner, /run_axrun "\$\{run_args\[@\]\}"/u);
+  assert.match(runner, /set -- --agent "\$REVIEW_AGENT"/u);
+  assert.match(runner, /set -- "\$@" --provider "\$REVIEW_PROVIDER"/u);
+  assert.match(runner, /run_axrun "\$@"/u);
   assert.match(runner, /hasExactKeys\(resolved, \["resolveVersion", "context", "result"\]\)/u);
   assert.match(runner, /mainPoolExempt/u);
   assert.match(runner, /warnings/u);
@@ -252,7 +268,7 @@ printf '%s\\n' "$@" > "$REVIEW_ARGV_LOG"
       REVIEW_ARGV_LOG: log,
     };
     delete environment.REVIEW_PROVIDER;
-    const result = spawnSync("sh", [join(repoRoot, "review-recipes", "review-runner.sh")], {
+    const result = spawnSync("dash", [join(repoRoot, "review-recipes", "review-runner.sh")], {
       encoding: "utf8",
       env: environment,
     });
@@ -672,7 +688,7 @@ test("seeder main guard remains active through a symlink", () => {
 });
 
 function runShell(command: string, environment: NodeJS.ProcessEnv) {
-  return spawnSync("sh", ["-c", command], {
+  return spawnSync("dash", ["-c", command], {
     encoding: "utf8",
     env: environment,
   });
@@ -692,7 +708,7 @@ function runGenericResolvePayload(payload: string) {
     for (const agent of ["claude", "codex", "opencode"]) {
       writeFileSync(join(bin, agent), "#!/bin/sh\nexit 0\n", { mode: 0o700 });
     }
-    return spawnSync("sh", [join(repoRoot, "review-recipes", "review-runner.sh")], {
+    return spawnSync("dash", [join(repoRoot, "review-recipes", "review-runner.sh")], {
       encoding: "utf8",
       env: {
         ...process.env,
