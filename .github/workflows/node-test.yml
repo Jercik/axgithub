@@ -1,0 +1,198 @@
+---
+name: Node tests
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  node-test:
+    name: node:test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: ".node-version"
+
+      - name: Run tests
+        shell: bash
+        run: |
+          set -eu
+          scratch_dir="$(mktemp -d)"
+          trap 'rm -rf -- "$scratch_dir"' EXIT
+          # Bash 3.2 treats zero-element arrays as unbound under nounset, so
+          # every array that can stay empty carries an inert empty sentinel.
+          encoded_test_files=(
+            ""
+            "cmV2aWV3LXJlY2lwZXMvc3RydWN0dXJlZC1mb3JnZWpvLXJlY2lwZXMudGVzdC50cw=="
+          )
+          encoded_candidate_files=(
+            ""
+            "cmV2aWV3LXJlY2lwZXMvc3RydWN0dXJlZC1mb3JnZWpvLXJlY2lwZXMudGVzdC50cw=="
+          )
+          encoded_package_json_files=(
+            ""
+
+          )
+          encoded_unsupported_package_json_files=(
+            ""
+
+          )
+          encoded_selection_input_files=(
+            ""
+
+          )
+          expected_selection_input_hashes=(
+            ""
+
+          )
+          selected_test_files=("")
+          for encoded_test_file in "${encoded_test_files[@]}"; do
+            [ -n "$encoded_test_file" ] || continue
+            decoded_test_file="$(node -e 'process.stdout.write(Buffer.from(process.argv[1], "base64")); process.stdout.write("x")' "$encoded_test_file")"
+            selected_test_files+=("${decoded_test_file%x}")
+          done
+          expected_candidate_files=("")
+          for encoded_candidate_file in "${encoded_candidate_files[@]}"; do
+            [ -n "$encoded_candidate_file" ] || continue
+            decoded_candidate_file="$(node -e 'process.stdout.write(Buffer.from(process.argv[1], "base64")); process.stdout.write("x")' "$encoded_candidate_file")"
+            expected_candidate_files+=("${decoded_candidate_file%x}")
+          done
+          expected_package_json_files=("")
+          for encoded_package_json_file in "${encoded_package_json_files[@]}"; do
+            [ -n "$encoded_package_json_file" ] || continue
+            decoded_package_json_file="$(node -e 'process.stdout.write(Buffer.from(process.argv[1], "base64")); process.stdout.write("x")' "$encoded_package_json_file")"
+            expected_package_json_files+=("${decoded_package_json_file%x}")
+          done
+          expected_unsupported_package_json_files=("")
+          for encoded_package_json_file in "${encoded_unsupported_package_json_files[@]}"; do
+            [ -n "$encoded_package_json_file" ] || continue
+            decoded_package_json_file="$(node -e 'process.stdout.write(Buffer.from(process.argv[1], "base64")); process.stdout.write("x")' "$encoded_package_json_file")"
+            expected_unsupported_package_json_files+=("${decoded_package_json_file%x}")
+          done
+          current_candidate_files=("")
+          git ls-files --full-name --stage -z -- ":(top,glob)**/*.test.js" ":(top,glob)**/*.test.cjs" ":(top,glob)**/*.test.mjs" ":(top,glob)**/*.test.ts" ":(top,glob)**/*.test.cts" ":(top,glob)**/*.test.mts" > "$scratch_dir/candidates"
+          while IFS= read -r -d '' indexed_candidate; do
+            candidate_metadata="${indexed_candidate%%$'\t'*}"
+            candidate_file="${indexed_candidate#*$'\t'}"
+            case "/$candidate_file/" in
+              */.claude/*|*/.clawpatch/*|*/.codex/*|*/.git/*|*/.next/*|*/coverage/*|*/dist/*|*/node_modules/*|*/references/*) continue ;;
+              */.agents/skills/*) ;;
+              */.agents/*) continue ;;
+            esac
+            candidate_mode="${candidate_metadata%% *}"
+            candidate_stage="${candidate_metadata##* }"
+            if [ "$candidate_stage" != "0" ] || { [ "$candidate_mode" != "100644" ] && [ "$candidate_mode" != "100755" ]; }; then
+              continue
+            fi
+            current_candidate_files+=("$candidate_file")
+          done < "$scratch_dir/candidates"
+          current_package_json_files=("")
+          current_unsupported_package_json_files=("")
+          git ls-files --full-name --stage -z -- ":(top)package.json" ":(top,glob)**/package.json" > "$scratch_dir/package-json"
+          while IFS= read -r -d '' indexed_package_json; do
+            package_json_metadata="${indexed_package_json%%$'\t'*}"
+            package_json_file="${indexed_package_json#*$'\t'}"
+            case "/$package_json_file/" in
+              */.claude/*|*/.clawpatch/*|*/.codex/*|*/.git/*|*/.next/*|*/coverage/*|*/dist/*|*/node_modules/*|*/references/*) continue ;;
+              */.agents/skills/*) ;;
+              */.agents/*) continue ;;
+            esac
+            package_json_mode="${package_json_metadata%% *}"
+            package_json_stage="${package_json_metadata##* }"
+            package_json_seen=0
+            for seen_package_json_file in "${current_package_json_files[@]}" "${current_unsupported_package_json_files[@]}"; do
+              if [ "$seen_package_json_file" = "$package_json_file" ]; then
+                package_json_seen=1
+                break
+              fi
+            done
+            if [ "$package_json_seen" -ne 0 ]; then
+              continue
+            fi
+            if [ "$package_json_stage" = "0" ] && { [ "$package_json_mode" = "100644" ] || [ "$package_json_mode" = "100755" ]; }; then
+              current_package_json_files+=("$package_json_file")
+            else
+              current_unsupported_package_json_files+=("$package_json_file")
+            fi
+          done < "$scratch_dir/package-json"
+          stale_candidates=0
+          if [ "${#current_candidate_files[@]}" -ne "${#expected_candidate_files[@]}" ]; then
+            stale_candidates=1
+          else
+            for ((index = 0; index < ${#current_candidate_files[@]}; index += 1)); do
+              if [ "${current_candidate_files[$index]}" != "${expected_candidate_files[$index]}" ]; then
+                stale_candidates=1
+                break
+              fi
+            done
+          fi
+          if [ "${#current_package_json_files[@]}" -ne "${#expected_package_json_files[@]}" ]; then
+            stale_candidates=1
+          else
+            for ((index = 0; index < ${#current_package_json_files[@]}; index += 1)); do
+              if [ "${current_package_json_files[$index]}" != "${expected_package_json_files[$index]}" ]; then
+                stale_candidates=1
+                break
+              fi
+            done
+          fi
+          if [ "${#current_unsupported_package_json_files[@]}" -ne "${#expected_unsupported_package_json_files[@]}" ]; then
+            stale_candidates=1
+          else
+            for ((index = 0; index < ${#current_unsupported_package_json_files[@]}; index += 1)); do
+              if [ "${current_unsupported_package_json_files[$index]}" != "${expected_unsupported_package_json_files[$index]}" ]; then
+                stale_candidates=1
+                break
+              fi
+            done
+          fi
+          if [ "$stale_candidates" -ne 0 ]; then
+            echo "Tracked standalone node test inputs changed; re-run j4k-align to refresh this workflow." >&2
+            exit 1
+          fi
+          for ((index = 0; index < ${#encoded_selection_input_files[@]}; index += 1)); do
+            [ -n "${encoded_selection_input_files[$index]}" ] || continue
+            decoded_selection_input_file="$(node -e 'process.stdout.write(Buffer.from(process.argv[1], "base64")); process.stdout.write("x")' "${encoded_selection_input_files[$index]}")"
+            selection_input_file="${decoded_selection_input_file%x}"
+            git show ":0:$selection_input_file" > "$scratch_dir/selection-input"
+            selection_input_hash="$(node -e 'const { createHash } = require("node:crypto"); const { readFileSync } = require("node:fs"); process.stdout.write(createHash("sha256").update(readFileSync(process.argv[1], "utf8")).digest("hex"))' -- "$scratch_dir/selection-input")"
+            if [ "$selection_input_hash" != "${expected_selection_input_hashes[$index]}" ]; then
+              echo "$selection_input_file changed; re-run j4k-align to refresh standalone node test selection." >&2
+              exit 1
+            fi
+          done
+          report_path="$scratch_dir/report"
+          for selected_test_file in "${selected_test_files[@]}"; do
+            [ -n "$selected_test_file" ] || continue
+            : > "$report_path"
+            # `node --test` treats positional files as glob patterns; a direct
+            # entrypoint keeps the detector-selected path literal.
+            node \
+              --test-reporter=spec \
+              --test-reporter-destination=stdout \
+              --test-reporter=./scripts/standalone-node-test-reporter.mjs \
+              --test-reporter-destination="$report_path" \
+              -- "$selected_test_file"
+            registered=0
+            while IFS= read -r encoded_registered_test_file; do
+              [ -n "$encoded_registered_test_file" ] || continue
+              decoded_registered_test_file="$(node -e 'process.stdout.write(Buffer.from(process.argv[1], "base64")); process.stdout.write("x")' "$encoded_registered_test_file")"
+              if [ "$selected_test_file" = "${decoded_registered_test_file%x}" ]; then
+                registered=1
+              fi
+            done < "$report_path"
+            if [ "$registered" -eq 0 ]; then
+              echo "$selected_test_file registered no node:test tests." >&2
+              exit 1
+            fi
+          done
